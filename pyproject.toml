@@ -7,7 +7,7 @@ name = "traffic-sign-quantization-robustness"
 version = "0.1.0"
 description = "Traffic sign model training and quantization experiments"
 requires-python = ">=3.10"
-dependencies = ["numpy>=1.24", "Pillow>=10", "torch>=2.2"]
+dependencies = ["numpy>=1.24", "Pillow>=10", "torch>=2.2", "torchvision>=0.17"]
 
 [tool.setuptools.packages.find]
 where = ["."]

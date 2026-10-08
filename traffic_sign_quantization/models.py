@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from torchvision.models import mobilenet_v3_small
 
 
 class BaselineCNN(nn.Module):
@@ -29,3 +30,19 @@ class BaselineCNN(nn.Module):
     def forward(self, images: torch.Tensor) -> torch.Tensor:
         features = self.features(images).flatten(1)
         return self.classifier(features)
+
+
+class MobileNetV3Small(nn.Module):
+    """Compact MobileNetV3 model with a traffic-sign output layer."""
+
+    def __init__(self, num_classes: int = 43) -> None:
+        super().__init__()
+        if num_classes < 2:
+            raise ValueError("num_classes must be at least 2")
+
+        self.model = mobilenet_v3_small(weights=None)
+        in_features = self.model.classifier[-1].in_features
+        self.model.classifier[-1] = nn.Linear(in_features, num_classes)
+
+    def forward(self, images: torch.Tensor) -> torch.Tensor:
+        return self.model(images)
