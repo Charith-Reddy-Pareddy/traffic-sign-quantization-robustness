@@ -9,6 +9,9 @@ description = "Traffic sign model training and quantization experiments"
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.24", "Pillow>=10", "torch>=2.2", "torchvision>=0.17"]
 
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["traffic_sign_quantization*"]

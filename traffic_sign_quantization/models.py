@@ -46,3 +46,11 @@ class MobileNetV3Small(nn.Module):
 
     def forward(self, images: torch.Tensor) -> torch.Tensor:
         return self.model(images)
+
+
+def create_model(model_name: str, num_classes: int = 43) -> nn.Module:
+    if model_name == "baseline_cnn":
+        return BaselineCNN(num_classes)
+    if model_name == "mobilenet_v3_small":
+        return MobileNetV3Small(num_classes)
+    raise ValueError("model_name must be 'baseline_cnn' or 'mobilenet_v3_small'")
