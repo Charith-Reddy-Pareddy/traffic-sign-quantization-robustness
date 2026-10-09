@@ -39,6 +39,12 @@ class EpochResult:
     accuracy: float
 
 
+@dataclass(frozen=True)
+class EpochSummary:
+    training: EpochResult
+    validation: EpochResult
+
+
 def _run_epoch(
     model: torch.nn.Module,
     loader: Iterable[tuple[torch.Tensor, torch.Tensor]],
@@ -94,3 +100,28 @@ def evaluate(
     device: torch.device | str = "cpu",
 ) -> EpochResult:
     return _run_epoch(model, loader, device)
+
+
+def fit(
+    model: torch.nn.Module,
+    train_loader: Iterable[tuple[torch.Tensor, torch.Tensor]],
+    validation_loader: Iterable[tuple[torch.Tensor, torch.Tensor]],
+    config: TrainConfig,
+    device: torch.device | str = "cpu",
+) -> tuple[EpochSummary, ...]:
+    device = torch.device(device)
+    set_seed(config.seed)
+    model.to(device)
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=config.learning_rate,
+        weight_decay=config.weight_decay,
+    )
+    history = []
+
+    for _ in range(config.epochs):
+        training = train_epoch(model, train_loader, optimizer, device)
+        validation = evaluate(model, validation_loader, device)
+        history.append(EpochSummary(training, validation))
+
+    return tuple(history)
