@@ -6,7 +6,42 @@ from typing import Literal
 import numpy as np
 import torch
 from PIL import Image
-from torch.utils.data import Dataset
+from torch.utils.data import DataLoader, Dataset, random_split
+
+
+def create_data_loaders(
+    dataset: Dataset,
+    batch_size: int = 64,
+    validation_fraction: float = 0.2,
+    seed: int = 42,
+) -> tuple[DataLoader, DataLoader]:
+    if batch_size < 1:
+        raise ValueError("batch_size must be positive")
+    if not 0 < validation_fraction < 1:
+        raise ValueError("validation_fraction must be between zero and one")
+
+    size = len(dataset)
+    if size < 2:
+        raise ValueError("dataset must contain at least two items")
+
+    val_size = min(size - 1, max(1, int(size * validation_fraction)))
+    train_size = size - val_size
+    split_generator = torch.Generator().manual_seed(seed)
+    train_set, val_set = random_split(
+        dataset,
+        (train_size, val_size),
+        generator=split_generator,
+    )
+    train_generator = torch.Generator().manual_seed(seed)
+
+    train_loader = DataLoader(
+        train_set,
+        batch_size=batch_size,
+        shuffle=True,
+        generator=train_generator,
+    )
+    val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=False)
+    return train_loader, val_loader
 
 
 class GTSRBDataset(Dataset[tuple[torch.Tensor, int]]):
