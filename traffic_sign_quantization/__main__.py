@@ -3,6 +3,7 @@ from pathlib import Path
 
 import torch
 
+from traffic_sign_quantization.checkpoints import save_weights
 from traffic_sign_quantization.data import GTSRBDataset, create_data_loaders
 from traffic_sign_quantization.models import create_model
 from traffic_sign_quantization.training import TrainConfig, fit, set_seed
@@ -29,6 +30,7 @@ def main() -> None:
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default=_default_device())
+    parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
     config = TrainConfig(
@@ -55,6 +57,11 @@ def main() -> None:
             f"validation loss={result.validation.loss:.4f} "
             f"validation accuracy={result.validation.accuracy:.4f}"
         )
+
+    output = args.output or Path("artifacts") / f"{args.model}_seed{args.seed}.pt"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    save_weights(model, output)
+    print(f"saved weights to {output}")
 
 
 if __name__ == "__main__":
