@@ -1,6 +1,8 @@
+import json
 import math
 import statistics
 import time
+from pathlib import Path
 
 import torch
 
@@ -73,3 +75,14 @@ def compare_models(
         "quantized": quantized_stats,
         "speedup": full_stats["mean_ms"] / quantized_stats["mean_ms"],
     }
+
+
+
+def save_benchmark_report(
+    report: dict[str, dict[str, float | int] | float],
+    path: str | Path,
+) -> None:
+    """Write benchmark results as a readable JSON file."""
+    with Path(path).open("w", encoding="utf-8") as file:
+        json.dump(report, file, indent=2, sort_keys=True)
+        file.write("\n")
