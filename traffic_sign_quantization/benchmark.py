@@ -56,12 +56,23 @@ def benchmark_inference(
     }
 
 
+def _predict(model: torch.nn.Module, images: torch.Tensor) -> torch.Tensor:
+    was_training = model.training
+    model.cpu().eval()
+    try:
+        with torch.inference_mode():
+            return model(images.cpu()).argmax(dim=1).cpu()
+    finally:
+        model.train(was_training)
+
+
 def compare_models(
     full_precision: torch.nn.Module,
     quantized: torch.nn.Module,
     images: torch.Tensor,
     warmup: int = 10,
     runs: int = 100,
+    labels: torch.Tensor | None = None,
 ) -> dict[str, dict[str, float | int] | float]:
     """Compare loaded full-precision and quantized models on the same CPU batch."""
     full_stats = benchmark_inference(
@@ -70,11 +81,33 @@ def compare_models(
     quantized_stats = benchmark_inference(
         quantized, images, warmup=warmup, runs=runs, device="cpu"
     )
-    return {
+    report: dict[str, dict[str, float | int] | float] = {
         "full_precision": full_stats,
         "quantized": quantized_stats,
         "speedup": full_stats["mean_ms"] / quantized_stats["mean_ms"],
     }
+
+    if labels is not None:
+        labels = labels.detach().reshape(-1).cpu()
+        if labels.numel() != images.shape[0]:
+            raise ValueError("labels must match the image batch size")
+        full_pred = _predict(full_precision, images)
+        quantized_pred = _predict(quantized, images)
+        full_acc = (full_pred == labels).float().mean().item()
+        quantized_acc = (quantized_pred == labels).float().mean().item()
+        report.update(
+            {
+                "full_precision_accuracy": full_acc,
+                "quantized_accuracy": quantized_acc,
+                "accuracy_drop": full_acc - quantized_acc,
+                "prediction_agreement": (full_pred == quantized_pred)
+                .float()
+                .mean()
+                .item(),
+            }
+        )
+
+    return report
 
 
 
