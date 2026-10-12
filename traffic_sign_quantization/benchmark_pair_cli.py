@@ -40,6 +40,25 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _run_config(args: argparse.Namespace) -> dict[str, object]:
+    config: dict[str, object] = {
+        "dataset": "GTSRB",
+        "split": "test",
+        "model": args.model,
+        "quantization": args.quantization,
+        "backend": args.backend,
+        "fp32_checkpoint": args.fp32_checkpoint.name,
+        "quantized_checkpoint": args.quantized_checkpoint.name,
+        "batch_size": args.batch_size,
+        "warmup": args.warmup,
+        "runs": args.runs,
+        "max_batches": args.max_batches,
+    }
+    if args.quantization == "ptq":
+        config["calibration_samples"] = args.calibration_samples
+    return config
+
+
 def main() -> None:
     parser = _parser()
     args = parser.parse_args()
@@ -88,6 +107,7 @@ def main() -> None:
         warmup=args.warmup,
         runs=args.runs,
     )
+    report["config"] = _run_config(args)
     result = json.dumps(report, indent=2, sort_keys=True)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
