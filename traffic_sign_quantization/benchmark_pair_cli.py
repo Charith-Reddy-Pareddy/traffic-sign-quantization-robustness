@@ -40,6 +40,18 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _checkpoint_sizes(fp32: Path, quantized: Path) -> dict[str, int | float]:
+    fp32_size = fp32.stat().st_size
+    quantized_size = quantized.stat().st_size
+    if fp32_size < 1 or quantized_size < 1:
+        raise ValueError("checkpoint files must not be empty")
+    return {
+        "fp32_checkpoint_size_bytes": fp32_size,
+        "quantized_checkpoint_size_bytes": quantized_size,
+        "checkpoint_size_reduction": (fp32_size - quantized_size) / fp32_size,
+    }
+
+
 def _run_config(args: argparse.Namespace) -> dict[str, object]:
     config: dict[str, object] = {
         "dataset": "GTSRB",
@@ -108,6 +120,9 @@ def main() -> None:
         runs=args.runs,
     )
     report["config"] = _run_config(args)
+    report["config"].update(
+        _checkpoint_sizes(args.fp32_checkpoint, args.quantized_checkpoint)
+    )
     result = json.dumps(report, indent=2, sort_keys=True)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
