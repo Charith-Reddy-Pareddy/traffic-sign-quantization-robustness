@@ -76,6 +76,9 @@ def benchmark_checkpoint_pair(
     correct_quantized = 0
     agree = 0
     samples = 0
+    class_counts: torch.Tensor | None = None
+    fp32_class_correct: torch.Tensor | None = None
+    quantized_class_correct: torch.Tensor | None = None
     fp32_mode = fp32_model.training
     quantized_mode = quantized_model.training
     fp32_model.eval()
@@ -102,16 +105,55 @@ def benchmark_checkpoint_pair(
                     raise ValueError(
                         "model pair must return matching batch and class dimensions"
                     )
+                if labels.is_floating_point() and not torch.equal(
+                    labels, labels.round()
+                ):
+                    raise ValueError("labels must contain integer class IDs")
+                if labels.numel() and (
+                    labels.min() < 0 or labels.max() >= fp32_logits.shape[1]
+                ):
+                    raise ValueError("labels must be valid model class IDs")
+
+                if class_counts is None:
+                    class_counts = torch.zeros(fp32_logits.shape[1], dtype=torch.long)
+                    fp32_class_correct = torch.zeros_like(class_counts)
+                    quantized_class_correct = torch.zeros_like(class_counts)
+                elif fp32_logits.shape[1] != class_counts.numel():
+                    raise ValueError("model pair must keep the same class count")
 
                 fp32_preds = fp32_logits.argmax(dim=1)
                 quantized_preds = quantized_logits.argmax(dim=1)
-                correct_fp32 += int((fp32_preds == labels).sum().item())
-                correct_quantized += int((quantized_preds == labels).sum().item())
+                fp32_correct = fp32_preds == labels
+                quantized_correct = quantized_preds == labels
+                correct_fp32 += int(fp32_correct.sum().item())
+                correct_quantized += int(quantized_correct.sum().item())
                 agree += int((fp32_preds == quantized_preds).sum().item())
                 samples += labels.numel()
+                labels_cpu = labels.detach().to(device="cpu", dtype=torch.long)
+                class_counts += torch.bincount(
+                    labels_cpu, minlength=class_counts.numel()
+                )
+                fp32_class_correct += torch.bincount(
+                    labels_cpu[fp32_correct.cpu()], minlength=class_counts.numel()
+                )
+                quantized_class_correct += torch.bincount(
+                    labels_cpu[quantized_correct.cpu()], minlength=class_counts.numel()
+                )
     finally:
         fp32_model.train(fp32_mode)
         quantized_model.train(quantized_mode)
+
+    per_class_accuracy = {}
+    for class_id, count in enumerate(class_counts.tolist()):
+        if count:
+            fp32_acc = int(fp32_class_correct[class_id]) / count
+            quantized_acc = int(quantized_class_correct[class_id]) / count
+            per_class_accuracy[class_id] = {
+                "samples": count,
+                "fp32_accuracy": fp32_acc,
+                "quantized_accuracy": quantized_acc,
+                "accuracy_delta": quantized_acc - fp32_acc,
+            }
 
     return {
         "samples": samples,
@@ -119,6 +161,7 @@ def benchmark_checkpoint_pair(
         "quantized_accuracy": correct_quantized / samples,
         "accuracy_delta": (correct_quantized - correct_fp32) / samples,
         "prediction_agreement": agree / samples,
+        "per_class_accuracy": per_class_accuracy,
         "fp32_timing": fp32_timing,
         "quantized_timing": quantized_timing,
         "speedup": fp32_timing["mean_ms"] / quantized_timing["mean_ms"],
