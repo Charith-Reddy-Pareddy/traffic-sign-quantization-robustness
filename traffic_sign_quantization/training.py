@@ -1,5 +1,5 @@
 import random
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 import numpy as np
@@ -108,6 +108,7 @@ def fit(
     validation_loader: Iterable[tuple[torch.Tensor, torch.Tensor]],
     config: TrainConfig,
     device: torch.device | str = "cpu",
+    on_epoch: Callable[[int, EpochSummary], None] | None = None,
 ) -> tuple[EpochSummary, ...]:
     device = torch.device(device)
     set_seed(config.seed)
@@ -119,9 +120,12 @@ def fit(
     )
     history = []
 
-    for _ in range(config.epochs):
+    for epoch in range(config.epochs):
         training = train_epoch(model, train_loader, optimizer, device)
         validation = evaluate(model, validation_loader, device)
-        history.append(EpochSummary(training, validation))
+        summary = EpochSummary(training, validation)
+        history.append(summary)
+        if on_epoch is not None:
+            on_epoch(epoch + 1, summary)
 
     return tuple(history)

@@ -63,21 +63,45 @@ def main() -> None:
         }, indent=2, sort_keys=True))
         return
     model = create_model(args.model)
-    history = fit(model, train_loader, val_loader, config, args.device)
+    output = args.output or Path("artifacts") / f"{args.model}_seed{args.seed}.pt"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    best_accuracy = -1.0
+    best_epoch = 0
 
-    for epoch, result in enumerate(history, start=1):
+    def on_epoch(epoch, result):
+        nonlocal best_accuracy, best_epoch
         print(
             f"epoch {epoch}: "
             f"train loss={result.training.loss:.4f} "
             f"train accuracy={result.training.accuracy:.4f} "
             f"validation loss={result.validation.loss:.4f} "
-            f"validation accuracy={result.validation.accuracy:.4f}"
+            f"validation accuracy={result.validation.accuracy:.4f}",
+            flush=True,
         )
+        if result.validation.accuracy > best_accuracy:
+            save_weights(model, output)
+            best_accuracy = result.validation.accuracy
+            best_epoch = epoch
 
-    output = args.output or Path("artifacts") / f"{args.model}_seed{args.seed}.pt"
-    output.parent.mkdir(parents=True, exist_ok=True)
-    save_weights(model, output)
-    print(f"saved weights to {output}")
+    history = fit(model, train_loader, val_loader, config, args.device, on_epoch)
+    report = {
+        "model": args.model,
+        "device": args.device,
+        "torch_version": str(torch.__version__),
+        "config": asdict(config),
+        "split": "stratified_tracks",
+        "validation_fraction": args.validation_fraction,
+        "train_samples": len(train_loader.dataset),
+        "validation_samples": len(val_loader.dataset),
+        "best_epoch": best_epoch,
+        "best_validation_accuracy": best_accuracy,
+        "history": [asdict(result) for result in history],
+    }
+    output.with_name(output.name + ".json").write_text(
+        json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    print(f"saved best weights from epoch {best_epoch} to {output}")
 
 
 if __name__ == "__main__":
