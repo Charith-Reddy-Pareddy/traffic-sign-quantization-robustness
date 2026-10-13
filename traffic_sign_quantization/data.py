@@ -6,7 +6,30 @@ from typing import Literal
 import numpy as np
 import torch
 from PIL import Image
-from torch.utils.data import DataLoader, Dataset, random_split
+from torch.utils.data import DataLoader, Dataset, Subset, random_split
+
+
+def _split_gtsrb(dataset: "GTSRBDataset", fraction: float, seed: int):
+    groups: dict[int, dict[str, list[int]]] = {}
+    for index, (path, label) in enumerate(dataset.records):
+        track, separator, frame = path.stem.rpartition("_")
+        if not separator or not track or not frame.isdigit():
+            raise ValueError(f"cannot identify a GTSRB training track: {path.name}")
+        groups.setdefault(label, {}).setdefault(track, []).append(index)
+
+    generator = torch.Generator().manual_seed(seed)
+    train_indices, val_indices = [], []
+    for label in sorted(groups):
+        tracks = sorted(groups[label])
+        if len(tracks) < 2:
+            raise ValueError(f"class {label} needs at least two tracks for validation")
+        val_count = min(len(tracks) - 1, max(1, int(len(tracks) * fraction)))
+        order = torch.randperm(len(tracks), generator=generator).tolist()
+        val_tracks = {tracks[i] for i in order[:val_count]}
+        for track in tracks:
+            indices = val_indices if track in val_tracks else train_indices
+            indices.extend(groups[label][track])
+    return sorted(train_indices), sorted(val_indices)
 
 
 def create_data_loaders(
@@ -24,14 +47,19 @@ def create_data_loaders(
     if size < 2:
         raise ValueError("dataset must contain at least two items")
 
-    val_size = min(size - 1, max(1, int(size * validation_fraction)))
-    train_size = size - val_size
-    split_generator = torch.Generator().manual_seed(seed)
-    train_set, val_set = random_split(
-        dataset,
-        (train_size, val_size),
-        generator=split_generator,
-    )
+    if isinstance(dataset, GTSRBDataset):
+        train_indices, val_indices = _split_gtsrb(dataset, validation_fraction, seed)
+        train_set = Subset(dataset, train_indices)
+        val_set = Subset(dataset, val_indices)
+    else:
+        val_size = min(size - 1, max(1, int(size * validation_fraction)))
+        train_size = size - val_size
+        split_generator = torch.Generator().manual_seed(seed)
+        train_set, val_set = random_split(
+            dataset,
+            (train_size, val_size),
+            generator=split_generator,
+        )
     train_generator = torch.Generator().manual_seed(seed)
 
     train_loader = DataLoader(

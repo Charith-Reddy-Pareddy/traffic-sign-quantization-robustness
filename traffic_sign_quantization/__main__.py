@@ -1,4 +1,6 @@
 import argparse
+import json
+from dataclasses import asdict
 from pathlib import Path
 
 import torch
@@ -29,6 +31,8 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--validation-fraction", type=float, default=0.2)
+    parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--device", default=_default_device())
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
@@ -44,8 +48,20 @@ def main() -> None:
     train_loader, val_loader = create_data_loaders(
         dataset,
         batch_size=config.batch_size,
+        validation_fraction=args.validation_fraction,
         seed=config.seed,
     )
+    if args.dry_run:
+        print(json.dumps({
+            "model": args.model,
+            "device": args.device,
+            "config": asdict(config),
+            "validation_fraction": args.validation_fraction,
+            "split": "stratified_tracks",
+            "train_samples": len(train_loader.dataset),
+            "validation_samples": len(val_loader.dataset),
+        }, indent=2, sort_keys=True))
+        return
     model = create_model(args.model)
     history = fit(model, train_loader, val_loader, config, args.device)
 
