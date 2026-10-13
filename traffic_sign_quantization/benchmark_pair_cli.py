@@ -10,7 +10,7 @@ import torchvision
 from torch.utils.data import DataLoader
 
 from traffic_sign_quantization.calibration import create_calibration_loader
-from traffic_sign_quantization.data import GTSRBDataset
+from traffic_sign_quantization.data import GTSRBDataset, create_data_loaders
 from traffic_sign_quantization.models import create_model
 from traffic_sign_quantization.paired_benchmark import (
     benchmark_checkpoint_pair,
@@ -38,6 +38,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--warmup", type=int, default=10)
     parser.add_argument("--runs", type=int, default=100)
     parser.add_argument("--calibration-samples", type=int, default=512)
+    parser.add_argument("--split", choices=("test", "validation"), default="test")
+    parser.add_argument("--split-seed", type=int, default=42)
+    parser.add_argument("--validation-fraction", type=float, default=0.2)
     parser.add_argument("--max-batches", type=int)
     parser.add_argument("--output", type=Path)
     return parser
@@ -71,7 +74,7 @@ def _checkpoint_sizes(fp32: Path, quantized: Path) -> dict[str, int | float]:
 def _run_config(args: argparse.Namespace) -> dict[str, object]:
     config: dict[str, object] = {
         "dataset": "GTSRB",
-        "split": "test",
+        "split": getattr(args, "split", "test"),
         "model": args.model,
         "quantization": args.quantization,
         "backend": args.backend,
@@ -84,6 +87,8 @@ def _run_config(args: argparse.Namespace) -> dict[str, object]:
     }
     if args.quantization == "ptq":
         config["calibration_samples"] = args.calibration_samples
+    config["split_seed"] = getattr(args, "split_seed", 42)
+    config["validation_fraction"] = getattr(args, "validation_fraction", 0.2)
     return config
 
 
@@ -97,6 +102,8 @@ def _validate_inputs(args: argparse.Namespace) -> None:
         if path.stat().st_size == 0:
             raise ValueError(f"{option}: checkpoint file is empty: {path}")
     splits = ("Test", "Train") if args.quantization == "ptq" else ("Test",)
+    if getattr(args, "split", "test") == "validation":
+        splits = ("Train",)
     for split in splits:
         path = args.data_root.expanduser() / f"{split}.csv"
         if not path.is_file():
@@ -119,6 +126,8 @@ def main() -> None:
         parser.error("--warmup must be nonnegative and --runs must be at least 2")
     if args.max_batches is not None and args.max_batches < 1:
         parser.error("--max-batches must be positive")
+    if not 0 < args.validation_fraction < 1:
+        parser.error("--validation-fraction must be between 0 and 1")
 
     try:
         _validate_inputs(args)
@@ -130,14 +139,26 @@ def main() -> None:
 
 
 def _run_benchmark(args: argparse.Namespace) -> None:
-    dataset = GTSRBDataset(root=args.data_root, split="test")
-    for path, _ in dataset.records:
+    dataset = GTSRBDataset(
+        root=args.data_root, split="train" if args.split == "validation" else "test"
+    )
+    if args.split == "validation":
+        _, loader = create_data_loaders(
+            dataset, batch_size=args.batch_size,
+            validation_fraction=args.validation_fraction, seed=args.split_seed,
+        )
+        selected = loader.dataset
+    else:
+        selected = dataset
+        loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
+    for i in range(len(selected)):
+        index = selected.indices[i] if args.split == "validation" else i
+        path, _ = dataset.records[index]
         if not path.is_file():
             raise ValueError(f"GTSRB image file not found: {path}")
-    loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
     if args.max_batches is not None:
         loader = islice(loader, args.max_batches)
-    first_images, _ = dataset[0]
+    first_images, _ = selected[0]
     first_images = first_images.unsqueeze(0)
     fp32_model = create_model(args.model)
     quantized_model = create_model(args.model)
@@ -152,6 +173,8 @@ def _run_benchmark(args: argparse.Namespace) -> None:
             root=args.data_root,
             sample_count=args.calibration_samples,
             batch_size=args.batch_size,
+            split_seed=args.split_seed,
+            validation_fraction=args.validation_fraction,
         )
         quantized_model = quantize_baseline(
             quantized_model, calibration_loader, backend=args.backend
@@ -172,7 +195,7 @@ def _run_benchmark(args: argparse.Namespace) -> None:
         runs=args.runs,
     )
     report["config"] = _run_config(args)
-    report["config"]["test_split_samples"] = len(dataset)
+    report["config"][f"{args.split}_split_samples"] = len(selected)
     report["config"].update(
         _checkpoint_sizes(args.fp32_checkpoint, args.quantized_checkpoint)
     )
