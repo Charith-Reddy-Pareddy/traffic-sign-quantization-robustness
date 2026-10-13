@@ -164,7 +164,7 @@ def _run_benchmark(args: argparse.Namespace) -> None:
     quantized_model = create_model(args.model)
 
     if args.quantization == "qat":
-        quantized_model = prepare_qat_model(quantized_model, args.backend)
+        quantized_model = prepare_qat_model(quantized_model, args.backend, images=first_images)
         with torch.inference_mode():
             quantized_model(first_images)
         quantized_model = convert_qat_model(quantized_model, args.backend)
