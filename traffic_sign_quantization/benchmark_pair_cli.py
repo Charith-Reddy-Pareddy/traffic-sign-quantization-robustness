@@ -1,9 +1,11 @@
 import argparse
 import json
+import platform
 from itertools import islice
 from pathlib import Path
 
 import torch
+import torchvision
 from torch.utils.data import DataLoader
 
 from traffic_sign_quantization.calibration import create_calibration_loader
@@ -38,6 +40,19 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-batches", type=int)
     parser.add_argument("--output", type=Path)
     return parser
+
+
+def _runtime_info() -> dict[str, str | int]:
+    return {
+        "device": "cpu",
+        "python_version": platform.python_version(),
+        "torch_version": str(torch.__version__),
+        "torchvision_version": str(torchvision.__version__),
+        "system": platform.system(),
+        "architecture": platform.machine(),
+        "cpu_threads": torch.get_num_threads(),
+        "interop_threads": torch.get_num_interop_threads(),
+    }
 
 
 def _checkpoint_sizes(fp32: Path, quantized: Path) -> dict[str, int | float]:
@@ -123,6 +138,7 @@ def main() -> None:
     report["config"].update(
         _checkpoint_sizes(args.fp32_checkpoint, args.quantized_checkpoint)
     )
+    report["runtime"] = _runtime_info()
     result = json.dumps(report, indent=2, sort_keys=True)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
