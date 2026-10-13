@@ -135,6 +135,7 @@ def main() -> None:
         runs=args.runs,
     )
     report["config"] = _run_config(args)
+    report["config"]["test_split_samples"] = len(dataset)
     report["config"].update(
         _checkpoint_sizes(args.fp32_checkpoint, args.quantized_checkpoint)
     )
