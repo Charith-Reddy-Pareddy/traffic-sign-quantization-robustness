@@ -1,5 +1,6 @@
 import argparse
 import json
+import pickle
 import platform
 from itertools import islice
 from pathlib import Path
@@ -86,6 +87,29 @@ def _run_config(args: argparse.Namespace) -> dict[str, object]:
     return config
 
 
+def _validate_inputs(args: argparse.Namespace) -> None:
+    for option, path in (
+        ("--fp32-checkpoint", args.fp32_checkpoint),
+        ("--quantized-checkpoint", args.quantized_checkpoint),
+    ):
+        if not path.is_file():
+            raise ValueError(f"{option}: checkpoint file not found: {path}")
+        if path.stat().st_size == 0:
+            raise ValueError(f"{option}: checkpoint file is empty: {path}")
+    splits = ("Test", "Train") if args.quantization == "ptq" else ("Test",)
+    for split in splits:
+        path = args.data_root.expanduser() / f"{split}.csv"
+        if not path.is_file():
+            raise ValueError(f"--data-root: required GTSRB CSV not found: {path}")
+    if (
+        args.backend not in torch.backends.quantized.supported_engines
+        or args.backend == "none"
+    ):
+        raise ValueError(f"unsupported quantization backend: {args.backend}")
+    if args.quantization == "ptq" and args.calibration_samples < 1:
+        raise ValueError("--calibration-samples must be positive for PTQ")
+
+
 def main() -> None:
     parser = _parser()
     args = parser.parse_args()
@@ -96,7 +120,20 @@ def main() -> None:
     if args.max_batches is not None and args.max_batches < 1:
         parser.error("--max-batches must be positive")
 
+    try:
+        _validate_inputs(args)
+        _run_benchmark(args)
+    except (
+        OSError, ValueError, RuntimeError, pickle.UnpicklingError, EOFError
+    ) as error:
+        parser.error(str(error))
+
+
+def _run_benchmark(args: argparse.Namespace) -> None:
     dataset = GTSRBDataset(root=args.data_root, split="test")
+    for path, _ in dataset.records:
+        if not path.is_file():
+            raise ValueError(f"GTSRB image file not found: {path}")
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
     if args.max_batches is not None:
         loader = islice(loader, args.max_batches)
