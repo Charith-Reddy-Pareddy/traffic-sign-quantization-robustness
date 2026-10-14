@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import pickle
 import platform
@@ -60,14 +61,26 @@ def _runtime_info() -> dict[str, str | int]:
     }
 
 
-def _checkpoint_sizes(fp32: Path, quantized: Path) -> dict[str, int | float]:
+def _checkpoint_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _checkpoint_sizes(
+    fp32: Path, quantized: Path
+) -> dict[str, int | float | str]:
     fp32_size = fp32.stat().st_size
     quantized_size = quantized.stat().st_size
     if fp32_size < 1 or quantized_size < 1:
         raise ValueError("checkpoint files must not be empty")
     return {
         "fp32_checkpoint_size_bytes": fp32_size,
+        "fp32_checkpoint_sha256": _checkpoint_sha256(fp32),
         "quantized_checkpoint_size_bytes": quantized_size,
+        "quantized_checkpoint_sha256": _checkpoint_sha256(quantized),
         "checkpoint_size_reduction": (fp32_size - quantized_size) / fp32_size,
     }
 
