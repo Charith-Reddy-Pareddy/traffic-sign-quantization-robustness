@@ -2,6 +2,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+from itertools import combinations
 
 import torch
 
@@ -11,6 +12,44 @@ from traffic_sign_quantization.models import create_model
 from traffic_sign_quantization.ptq import quantize_baseline
 from traffic_sign_quantization.qat import convert_qat_model
 from traffic_sign_quantization.qat_setup import prepare_baseline_qat
+
+
+def compare_predictions(models, loader):
+    counts = torch.zeros(43, dtype=torch.long)
+    correct = {name: torch.zeros_like(counts) for name in models}
+    pairs = list(combinations(models, 2))
+    agreement = dict.fromkeys(pairs, 0)
+    with torch.inference_mode():
+        for images, labels in loader:
+            if labels.ndim != 1 or len(labels) != len(images) or ((labels < 0) | (labels >= 43)).any():
+                raise ValueError("labels must match the batch and contain GTSRB class IDs")
+            predictions = {}
+            for name, model in models.items():
+                logits = model(images)
+                if logits.shape != (len(labels), 43) or not torch.isfinite(logits).all():
+                    raise ValueError(f"{name} checkpoint returned invalid logits")
+                predictions[name] = logits.argmax(1)
+                correct[name] += torch.bincount(labels[predictions[name] == labels], minlength=43)
+            counts += torch.bincount(labels, minlength=43)
+            for pair in pairs:
+                agreement[pair] += int((predictions[pair[0]] == predictions[pair[1]]).sum())
+    samples = int(counts.sum())
+    if not samples:
+        raise ValueError("evaluation loader must contain real images")
+    per_class = {
+        str(i): {"samples": int(count), "accuracy": {
+            name: int(values[i]) / int(count) if count else None
+            for name, values in correct.items()
+        }} for i, count in enumerate(counts)
+    }
+    return {
+        "samples": samples,
+        "accuracy": {name: int(values.sum()) / samples for name, values in correct.items()},
+        "prediction_agreement": {f"{a}_vs_{b}": value / samples for (a, b), value in agreement.items()},
+        "per_class": per_class,
+        "coverage": {"represented_classes": [i for i, count in enumerate(counts) if count],
+                     "missing_classes": [i for i, count in enumerate(counts) if not count]},
+    }
 
 
 def compare_checkpoints(fp32_path, ptq_path, qat_path, root="data/raw", batch_size=64):
@@ -35,18 +74,9 @@ def compare_checkpoints(fp32_path, ptq_path, qat_path, root="data/raw", batch_si
     )
     ptq = load_quantized_weights(quantize_baseline(fp32, calibration), ptq_path)
     models = {"fp32": fp32, "ptq": ptq, "qat": qat}
-    correct = dict.fromkeys(models, 0)
-    samples = 0
-    with torch.inference_mode():
-        for images, labels in val:
-            for name, model in models.items():
-                logits = model(images)
-                if logits.shape != (len(labels), 43) or not torch.isfinite(logits).all():
-                    raise ValueError(f"{name} checkpoint returned invalid logits")
-                correct[name] += int((logits.argmax(1) == labels).sum())
-            samples += len(labels)
+    metrics = compare_predictions(models, val)
     report = {
-        "samples": samples, "accuracy": {name: count / samples for name, count in correct.items()},
+        **metrics,
         "dataset": "GTSRB", "split": "validation", "model": "baseline_cnn",
         "split_seed": setup["split_seed"], "validation_fraction": setup["validation_fraction"],
         "batch_size": batch_size, "backend": "qnnpack", "cpu_threads": torch.get_num_threads(),
