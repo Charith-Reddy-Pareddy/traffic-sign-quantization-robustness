@@ -35,6 +35,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--quantization", choices=("qat", "ptq"), default="qat")
     parser.add_argument("--backend", default="qnnpack")
     parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument("--cpu-threads", type=int, default=torch.get_num_threads())
     parser.add_argument("--warmup", type=int, default=10)
     parser.add_argument("--runs", type=int, default=100)
     parser.add_argument("--calibration-samples", type=int, default=512)
@@ -81,6 +82,7 @@ def _run_config(args: argparse.Namespace) -> dict[str, object]:
         "fp32_checkpoint": args.fp32_checkpoint.name,
         "quantized_checkpoint": args.quantized_checkpoint.name,
         "batch_size": args.batch_size,
+        "cpu_threads": getattr(args, "cpu_threads", torch.get_num_threads()),
         "warmup": args.warmup,
         "runs": args.runs,
         "max_batches": args.max_batches,
@@ -122,6 +124,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.batch_size < 1:
         parser.error("--batch-size must be positive")
+    if args.cpu_threads < 1:
+        parser.error("--cpu-threads must be positive")
     if args.warmup < 0 or args.runs < 2:
         parser.error("--warmup must be nonnegative and --runs must be at least 2")
     if args.max_batches is not None and args.max_batches < 1:
@@ -130,6 +134,7 @@ def main() -> None:
         parser.error("--validation-fraction must be between 0 and 1")
 
     try:
+        torch.set_num_threads(args.cpu_threads)
         _validate_inputs(args)
         _run_benchmark(args)
     except (
