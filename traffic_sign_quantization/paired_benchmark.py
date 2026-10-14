@@ -1,12 +1,74 @@
 from collections.abc import Iterable
 from itertools import chain
+import math
 from pathlib import Path
+import statistics
+import time
 
 import torch
 from torch import nn
 
-from traffic_sign_quantization.benchmark import benchmark_inference
 from traffic_sign_quantization.checkpoints import load_quantized_weights, load_weights
+
+
+def _benchmark_pair(
+    fp32_model: nn.Module,
+    quantized_model: nn.Module,
+    images: torch.Tensor,
+    warmup: int,
+    runs: int,
+    device: torch.device | str,
+) -> tuple[dict[str, float | int], dict[str, float | int]]:
+    if warmup < 0 or runs < 2:
+        raise ValueError("warmup must be nonnegative and runs must be at least 2")
+
+    device = torch.device(device)
+    models = {"fp32": fp32_model, "quantized": quantized_model}
+    modes = {name: model.training for name, model in models.items()}
+    for model in models.values():
+        model.to(device).eval()
+    images = images.to(device)
+
+    def synchronize() -> None:
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
+
+    times = {name: [] for name in models}
+    try:
+        with torch.inference_mode():
+            for run in range(warmup):
+                order = list(models)
+                if run % 2:
+                    order.reverse()
+                for name in order:
+                    models[name](images)
+
+            for run in range(runs):
+                order = list(models)
+                if run % 2:
+                    order.reverse()
+                for name in order:
+                    synchronize()
+                    start = time.perf_counter()
+                    models[name](images)
+                    synchronize()
+                    times[name].append((time.perf_counter() - start) * 1000)
+    finally:
+        for name, model in models.items():
+            model.train(modes[name])
+
+    def summarize(samples: list[float]) -> dict[str, float | int]:
+        mean_ms = statistics.mean(samples)
+        return {
+            "batch_size": int(images.shape[0]),
+            "mean_ms": mean_ms,
+            "std_ms": statistics.stdev(samples),
+            "p50_ms": statistics.median(samples),
+            "p95_ms": sorted(samples)[math.ceil(0.95 * runs) - 1],
+            "images_per_second": images.shape[0] * 1000 / mean_ms,
+        }
+
+    return summarize(times["fp32"]), summarize(times["quantized"])
 
 
 def load_checkpoint_pair(
@@ -64,11 +126,13 @@ def benchmark_checkpoint_pair(
     if first_labels.reshape(-1).numel() != first_images.shape[0]:
         raise ValueError("image and label batch sizes must match")
 
-    fp32_timing = benchmark_inference(
-        fp32_model, first_images, warmup=warmup, runs=runs, device=device
-    )
-    quantized_timing = benchmark_inference(
-        quantized_model, first_images, warmup=warmup, runs=runs, device=device
+    fp32_timing, quantized_timing = _benchmark_pair(
+        fp32_model,
+        quantized_model,
+        first_images,
+        warmup=warmup,
+        runs=runs,
+        device=device,
     )
 
     device = torch.device(device)
@@ -165,4 +229,5 @@ def benchmark_checkpoint_pair(
         "fp32_timing": fp32_timing,
         "quantized_timing": quantized_timing,
         "speedup": fp32_timing["mean_ms"] / quantized_timing["mean_ms"],
+        "timing_order": "alternating",
     }
