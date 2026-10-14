@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 from torch.nn import functional as F
+from torch.ao.quantization.fake_quantize import FakeQuantizeBase
 
 
 @dataclass(frozen=True)
@@ -99,7 +100,17 @@ def evaluate(
     loader: Iterable[tuple[torch.Tensor, torch.Tensor]],
     device: torch.device | str = "cpu",
 ) -> EpochResult:
-    return _run_epoch(model, loader, device)
+    observers = [
+        (module, module.observer_enabled.clone())
+        for module in model.modules() if isinstance(module, FakeQuantizeBase)
+    ]
+    for module, _ in observers:
+        module.disable_observer()
+    try:
+        return _run_epoch(model, loader, device)
+    finally:
+        for module, enabled in observers:
+            module.observer_enabled.copy_(enabled)
 
 
 def fit(
