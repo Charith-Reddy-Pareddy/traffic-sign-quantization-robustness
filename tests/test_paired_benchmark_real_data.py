@@ -6,6 +6,8 @@ import torch
 from torch.utils.data import DataLoader, Subset
 
 from traffic_sign_quantization.data import GTSRBDataset
+from traffic_sign_quantization.compare_models import compare_predictions
+from traffic_sign_quantization.dashboard_data import normalize_report
 from traffic_sign_quantization.models import create_model
 from traffic_sign_quantization.paired_benchmark import (
     benchmark_checkpoint_pair,
@@ -70,3 +72,13 @@ def test_checkpoint_pair_reports_per_class_accuracy_on_real_gtsrb():
     ) / report["samples"]
     assert fp32_weighted == pytest.approx(report["fp32_accuracy"])
     assert quantized_weighted == pytest.approx(report["quantized_accuracy"])
+
+    comparison = compare_predictions(
+        {"fp32": fp32_model, "quantized": quantized_model}, loader
+    )
+    comparison.update(dataset="GTSRB", split="test", model="baseline_cnn")
+    normalized = normalize_report(comparison)
+    assert normalized["samples"] == 4
+    assert normalized["models"]["fp32"]["accuracy"] == comparison["accuracy"]["fp32"]
+    assert normalized["models"]["quantized"]["accuracy"] == comparison["accuracy"]["quantized"]
+    assert normalized["provenance"]["model"] == "baseline_cnn"
