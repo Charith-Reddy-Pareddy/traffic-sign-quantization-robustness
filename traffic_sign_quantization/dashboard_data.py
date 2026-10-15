@@ -54,9 +54,11 @@ def normalize_report(report: Mapping[str, Any]) -> dict[str, Any]:
         if (
             not isinstance(class_samples, int)
             or isinstance(class_samples, bool)
-            or class_samples <= 0
+            or class_samples < 0
         ):
-            raise ValueError(f"sample count for class {class_id!r} must be positive")
+            raise ValueError(
+                f"sample count for class {class_id!r} must be nonnegative"
+            )
         for name, score in metrics["accuracy"].items():
             if score is not None and not _valid_score(score):
                 raise ValueError(
@@ -89,11 +91,18 @@ def normalize_report(report: Mapping[str, Any]) -> dict[str, Any]:
             )
 
     represented = report["coverage"].get("represented_classes")
-    if represented is not None and set(map(int, represented)) != set(class_ids):
+    observed_ids = {
+        row["class_id"] for row in classes if row["samples"] > 0
+    }
+    if represented is not None and set(map(int, represented)) != observed_ids:
         raise ValueError("coverage classes do not match per-class results")
 
     for name, score in model_scores.items():
-        rows = [row for row in classes if _valid_score(row["accuracy"].get(name))]
+        rows = [
+            row
+            for row in classes
+            if row["samples"] > 0 and _valid_score(row["accuracy"].get(name))
+        ]
         class_samples = sum(row["samples"] for row in rows)
         if not class_samples:
             raise ValueError(f"per-class accuracy for {name!r} has no values")
