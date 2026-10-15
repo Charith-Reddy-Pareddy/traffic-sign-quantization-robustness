@@ -17,7 +17,8 @@ def test_dashboard_shows_saved_real_report():
     if not path.is_file():
         pytest.skip(f"saved GTSRB report is unavailable: {path}")
 
-    page = dashboard_html(load_report(path))
+    report = load_report(path)
+    page = dashboard_html(report)
 
     assert "Traffic Sign Analytics · GTSRB" in page
     assert "7,290 real images" in page
@@ -27,6 +28,15 @@ def test_dashboard_shows_saved_real_report():
     assert "FP32" in page
     assert "PTQ" in page
     assert "QAT" in page
+    assert "Accuracy bars use the same 0–100% scale" in page
+    for name, metrics in report["models"].items():
+        score = metrics["accuracy"]
+        assert f'value="{score:.6f}"' in page
+        if name == "fp32":
+            assert "reference" in page
+        else:
+            delta = (score - report["models"]["fp32"]["accuracy"]) * 100
+            assert f"{delta:+.1f} pp vs FP32" in page
     assert "Not measured" in page
     assert "Not recorded" in page
     assert 'id="class-search"' in page

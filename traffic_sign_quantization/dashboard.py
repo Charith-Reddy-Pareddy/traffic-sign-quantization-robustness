@@ -21,10 +21,14 @@ def dashboard_html(report: Mapping[str, Any]) -> str:
         item["samples"] > 0 for item in report["classes"]
     )
     model_name = escape(str(report["provenance"].get("model") or "Not recorded"))
+    reference = models.get("fp32", {}).get("accuracy")
     model_cards = "".join(
         f'<article class="model-card"><span>{escape(label)}</span>'
         f'<strong>{_percent(metrics.get("accuracy"))}</strong>'
-        f'<span class="card-note">Overall accuracy</span></article>'
+        f'<meter min="0" max="1" value="{metrics["accuracy"]:.6f}" '
+        f'aria-label="{escape(label)} accuracy">{_percent(metrics["accuracy"])}</meter>'
+        f'<span class="card-note">Overall accuracy · '
+        f'{_delta(metrics["accuracy"], reference, name)}</span></article>'
         for name, metrics in models.items()
         for label in (model_names[name],)
     )
@@ -105,6 +109,7 @@ def dashboard_html(report: Mapping[str, Any]) -> str:
       .model-card {{ display: grid; gap: 4px; padding: 17px; border: 1px solid #e4e9ef; border-radius: 10px; }}
       .model-card > span:first-child {{ color: #657385; font-size: 12px; font-weight: 650; }}
       .model-card strong {{ font-size: 25px; }}
+      .model-card meter {{ width: 100%; height: 10px; accent-color: #356ac3; }}
       .model-card .card-note {{ color: #8994a2; font-size: 11px; }}
       .agreement {{ display: flex; flex-wrap: wrap; gap: 12px 28px; margin: 0; padding: 0 22px 20px; list-style: none; }}
       .agreement li {{ display: flex; gap: 10px; color: #657385; font-size: 13px; }}
@@ -155,7 +160,7 @@ def dashboard_html(report: Mapping[str, Any]) -> str:
         <article class="summary-card"><p>Corruption results</p><strong>Not measured</strong><span>This is a clean validation report</span></article>
       </section>
       <section class="panel" id="models" aria-labelledby="models-title">
-        <div class="panel-heading"><div><h2 id="models-title">Model comparison</h2><p>Overall accuracy and prediction agreement from the saved report.</p></div></div>
+        <div class="panel-heading"><div><h2 id="models-title">Model comparison</h2><p>Accuracy bars use the same 0–100% scale; changes are relative to FP32.</p></div></div>
         <div class="model-grid" aria-label="Model accuracy">{model_cards}</div>
         <ul class="agreement" aria-label="Prediction agreement">{agreements}</ul>
       </section>
@@ -226,6 +231,14 @@ def _percent(value: Any) -> str:
     if value is None:
         return "—"
     return f"{value:.1%}"
+
+
+def _delta(value: float, reference: float | None, name: str) -> str:
+    if name == "fp32":
+        return "reference"
+    if reference is None:
+        return "FP32 score unavailable"
+    return f"{(value - reference) * 100:+.1f} pp vs FP32"
 
 
 if __name__ == "__main__":
