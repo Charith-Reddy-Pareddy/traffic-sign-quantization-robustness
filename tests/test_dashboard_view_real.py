@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from traffic_sign_quantization.dashboard import dashboard_html
+from traffic_sign_quantization.dashboard import _delta, _meter, _percent, dashboard_html
 from traffic_sign_quantization.dashboard_data import load_report
 
 
@@ -43,3 +43,15 @@ def test_dashboard_shows_saved_real_report():
     assert 'id="model-filter"' in page
     assert 'id="evaluations"' in page
     assert "Report provenance" in page
+    assert "@media (max-width: 640px)" in page
+    assert "position: sticky" in page
+    assert 'id="class-empty" hidden' in page
+    assert 'tbody tr[data-search]' in page
+
+
+def test_dashboard_handles_missing_score_values():
+    assert _percent(None) == "—"
+    assert _meter("PTQ", None) == (
+        '<span class="metric-unavailable">Accuracy unavailable</span>'
+    )
+    assert _delta(None, 0.9, "ptq") == "score unavailable"

@@ -25,10 +25,9 @@ def dashboard_html(report: Mapping[str, Any]) -> str:
     model_cards = "".join(
         f'<article class="model-card"><span>{escape(label)}</span>'
         f'<strong>{_percent(metrics.get("accuracy"))}</strong>'
-        f'<meter min="0" max="1" value="{metrics["accuracy"]:.6f}" '
-        f'aria-label="{escape(label)} accuracy">{_percent(metrics["accuracy"])}</meter>'
+        f'{_meter(label, metrics.get("accuracy"))}'
         f'<span class="card-note">Overall accuracy · '
-        f'{_delta(metrics["accuracy"], reference, name)}</span></article>'
+        f'{_delta(metrics.get("accuracy"), reference, name)}</span></article>'
         for name, metrics in models.items()
         for label in (model_names[name],)
     )
@@ -36,7 +35,7 @@ def dashboard_html(report: Mapping[str, Any]) -> str:
         f'<li><span>{escape(name.replace("_", " → ").upper())}</span>'
         f'<strong>{_percent(value)}</strong></li>'
         for name, value in report["agreement"].items()
-    )
+    ) or "<li>No prediction-agreement values were recorded.</li>"
     model_headers = "".join(
         f'<th data-model="{escape(name)}" scope="col">{escape(label)}</th>'
         for name, label in model_names.items()
@@ -52,6 +51,10 @@ def dashboard_html(report: Mapping[str, Any]) -> str:
         )
         + "</tr>"
         for item in report["classes"]
+    )
+    empty_class_row = (
+        f'<tr id="class-empty" hidden><td colspan="{len(models) + 2}">'
+        "No classes match your search.</td></tr>"
     )
     evaluation_rows = "".join(
         "<tr>"
@@ -125,6 +128,8 @@ def dashboard_html(report: Mapping[str, Any]) -> str:
       th, td {{ padding: 12px 18px; border-bottom: 1px solid #edf0f4; font-size: 12px; }}
       th {{ background: #fafbfd; color: #768293; font-weight: 600; }}
       tbody th {{ color: #202a35; }}
+      #class-table tbody th {{ position: sticky; left: 0; z-index: 1; background: #fff; }}
+      #class-table thead th:first-child {{ position: sticky; left: 0; z-index: 2; }}
       .note {{ padding: 0 22px 18px; color: #748091; font-size: 12px; }}
       details {{ margin: 20px 0; padding: 16px 20px; border: 1px solid #e4e9ef; border-radius: 12px; background: #fff; }}
       summary {{ cursor: pointer; font-weight: 600; }}
@@ -171,7 +176,7 @@ def dashboard_html(report: Mapping[str, Any]) -> str:
           <label for="model-filter">Show accuracy for<select id="model-filter"><option value="all">All formats</option>{''.join(f'<option value="{escape(name)}">{escape(label)}</option>' for name, label in model_names.items())}</select></label>
           <p class="results-count" id="class-count" role="status" aria-live="polite">Showing {len(report["classes"])} classes</p>
         </div>
-        <div class="table-wrap"><table id="class-table"><thead><tr><th scope="col">Class</th><th scope="col">Samples</th>{model_headers}</tr></thead><tbody>{class_rows}</tbody></table></div>
+        <div class="table-wrap"><table id="class-table"><thead><tr><th scope="col">Class</th><th scope="col">Samples</th>{model_headers}</tr></thead><tbody>{class_rows}{empty_class_row}</tbody></table></div>
       </section>
       <section class="panel" id="evaluations" aria-labelledby="evaluations-title">
         <div class="panel-heading"><div><h2 id="evaluations-title">Evaluation report</h2><p>Fields not recorded in the source report are identified below.</p></div></div>
@@ -183,7 +188,8 @@ def dashboard_html(report: Mapping[str, Any]) -> str:
     <script>
       const search = document.querySelector("#class-search");
       const modelFilter = document.querySelector("#model-filter");
-      const rows = [...document.querySelectorAll("#class-table tbody tr")];
+      const rows = [...document.querySelectorAll("#class-table tbody tr[data-search]")];
+      const emptyRow = document.querySelector("#class-empty");
       const count = document.querySelector("#class-count");
       function updateClasses() {{
         const query = search.value.trim().toLowerCase().replace(/^class\\s+/, "");
@@ -192,6 +198,7 @@ def dashboard_html(report: Mapping[str, Any]) -> str:
           row.hidden = Boolean(query) && row.dataset.search !== `class ${{query}}`;
           if (!row.hidden) visible += 1;
         }}
+        emptyRow.hidden = visible !== 0;
         for (const cell of document.querySelectorAll("#class-table [data-model]")) {{
           cell.hidden = modelFilter.value !== "all" && cell.dataset.model !== modelFilter.value;
         }}
@@ -233,7 +240,18 @@ def _percent(value: Any) -> str:
     return f"{value:.1%}"
 
 
-def _delta(value: float, reference: float | None, name: str) -> str:
+def _meter(label: str, value: float | None) -> str:
+    if value is None:
+        return '<span class="metric-unavailable">Accuracy unavailable</span>'
+    return (
+        f'<meter min="0" max="1" value="{value:.6f}" '
+        f'aria-label="{escape(label)} accuracy">{_percent(value)}</meter>'
+    )
+
+
+def _delta(value: float | None, reference: float | None, name: str) -> str:
+    if value is None:
+        return "score unavailable"
     if name == "fp32":
         return "reference"
     if reference is None:
