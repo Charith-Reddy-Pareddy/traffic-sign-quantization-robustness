@@ -4,11 +4,16 @@ from html import escape
 import json
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
-from traffic_sign_quantization.dashboard_data import load_report
+from traffic_sign_quantization.dashboard_data import discover_reports, load_report
 
 
-def dashboard_html(report: Mapping[str, Any]) -> str:
+def dashboard_html(
+    report: Mapping[str, Any],
+    report_options: list[tuple[str, str]] | None = None,
+    selected_report: str | None = None,
+) -> str:
     """Render a saved model comparison with the fields its report provides."""
     models = report["models"]
     model_names = {name: name.upper() for name in models}
@@ -71,6 +76,19 @@ def dashboard_html(report: Mapping[str, Any]) -> str:
     provenance = escape(
         json.dumps(report["provenance"], indent=2, sort_keys=True, default=str)
     )
+    report_picker = ""
+    if report_options and len(report_options) > 1:
+        options = "".join(
+            f'<option value="{escape(href, quote=True)}"'
+            f'{" selected" if href == selected_report else ""}>'
+            f"{escape(label)}</option>"
+            for href, label in report_options
+        )
+        report_picker = (
+            '<section class="report-picker" aria-label="Saved reports">'
+            '<label for="report-select">Choose a saved report'
+            f'<select id="report-select">{options}</select></label></section>'
+        )
 
     return f"""<!doctype html>
 <html lang="en">
@@ -98,6 +116,8 @@ def dashboard_html(report: Mapping[str, Any]) -> str:
       .subheading, .panel-heading p {{ margin-bottom: 0; color: #748091; font-size: 14px; }}
       .status {{ gap: 8px; padding: 8px 11px; border: 1px solid #e1e7ee; border-radius: 20px; background: #fff; color: #657385; font-size: 12px; white-space: nowrap; }}
       .status-dot {{ width: 7px; height: 7px; border-radius: 50%; background: #357b54; }}
+      .report-picker {{ display: flex; margin: 0 0 20px; padding: 15px 18px; border: 1px solid #e4e9ef; border-radius: 10px; background: #fff; }}
+      .report-picker select {{ min-width: min(360px, 80vw); }}
       .summary {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 20px; }}
       .summary-card, .panel {{ border: 1px solid #e4e9ef; border-radius: 12px; background: #fff; box-shadow: 0 2px 7px rgb(25 39 56 / 3%); }}
       .summary-card {{ padding: 19px 20px; }}
@@ -159,6 +179,7 @@ def dashboard_html(report: Mapping[str, Any]) -> str:
         </div>
         <span class="status"><span class="status-dot" aria-hidden="true"></span>Saved report loaded</span>
       </section>
+      {report_picker}
       <section class="summary" aria-label="Evaluation summary">
         <article class="summary-card"><p>Saved comparisons</p><strong>1</strong><span>One report shown</span></article>
         <article class="summary-card"><p>Model formats</p><strong>{len(models)}</strong><span>{escape(", ".join(model_names.values()))}</span></article>
@@ -188,6 +209,7 @@ def dashboard_html(report: Mapping[str, Any]) -> str:
     <script>
       const search = document.querySelector("#class-search");
       const modelFilter = document.querySelector("#model-filter");
+      const reportSelect = document.querySelector("#report-select");
       const rows = [...document.querySelectorAll("#class-table tbody tr[data-search]")];
       const emptyRow = document.querySelector("#class-empty");
       const count = document.querySelector("#class-count");
@@ -206,6 +228,11 @@ def dashboard_html(report: Mapping[str, Any]) -> str:
       }}
       search.addEventListener("input", updateClasses);
       modelFilter.addEventListener("change", updateClasses);
+      if (reportSelect) {{
+        reportSelect.addEventListener("change", () => {{
+          window.location.href = reportSelect.value;
+        }});
+      }}
     </script>
   </body>
 </html>
@@ -213,11 +240,44 @@ def dashboard_html(report: Mapping[str, Any]) -> str:
 
 
 def create_dashboard(report_path: str | Path, output_path: str | Path) -> Path:
-    """Build a dashboard from an existing comparison report, without changing it."""
-    page = dashboard_html(load_report(report_path))
+    """Build a dashboard from one report or a directory of saved comparisons."""
+    source = Path(report_path)
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(page, encoding="utf-8")
+    if not source.is_dir():
+        output.write_text(dashboard_html(load_report(source)), encoding="utf-8")
+        return output
+
+    reports = discover_reports(source)
+    if not reports:
+        raise ValueError(f"no valid comparison reports found in {source}")
+
+    report_dir = output.with_name(f"{output.stem}_reports")
+    root_options = []
+    detail_options = []
+    for index, (path, report) in enumerate(reports):
+        slug = f"{quote(path.stem, safe='._-')}.html"
+        root_href = output.name if index == 0 else f"{report_dir.name}/{slug}"
+        detail_href = f"../{output.name}" if index == 0 else slug
+        dataset = report.get("dataset") or "Dataset"
+        split = report.get("split") or "unspecified split"
+        label = f"{dataset} {split} · {report['samples']:,} images — {path.stem}"
+        root_options.append((root_href, label))
+        detail_options.append((detail_href, label))
+
+    for index, (_, report) in enumerate(reports):
+        if index == 0:
+            target = output
+            options = root_options
+            selected = root_options[0][0]
+        else:
+            report_dir.mkdir(parents=True, exist_ok=True)
+            target = report_dir / f"{quote(reports[index][0].stem, safe='._-')}.html"
+            options = detail_options
+            selected = detail_options[index][0]
+        target.write_text(
+            dashboard_html(report, options, selected), encoding="utf-8"
+        )
     return output
 
 
@@ -225,7 +285,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Create a local HTML view of a saved model comparison"
     )
-    parser.add_argument("report", type=Path, help="saved comparison JSON")
+    parser.add_argument("report", type=Path, help="saved comparison JSON or directory")
     parser.add_argument(
         "--output", type=Path, default=Path("artifacts/dashboard.html")
     )
