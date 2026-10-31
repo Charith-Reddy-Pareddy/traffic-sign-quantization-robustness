@@ -16,6 +16,9 @@ _RESULT_FIELDS = {
 
 def normalize_report(report: Mapping[str, Any]) -> dict[str, Any]:
     """Return comparison results in one shape while retaining report provenance."""
+    if "accuracy" not in report and "per_class_accuracy" in report:
+        report = _adapt_comparison_report(report)
+
     required = {
         "samples",
         "accuracy",
@@ -144,6 +147,99 @@ def load_report(path: str | Path) -> dict[str, Any]:
     if not isinstance(report, Mapping):
         raise ValueError(f"report must contain a JSON object: {report_path}")
     return normalize_report(report)
+
+
+def discover_reports(directory: str | Path) -> list[tuple[Path, dict[str, Any]]]:
+    """Return valid saved comparison reports in stable filename order."""
+    report_dir = Path(directory)
+    found = []
+    for path in sorted(report_dir.glob("*.json")):
+        try:
+            report = load_report(path)
+        except (FileNotFoundError, ValueError):
+            continue
+        found.append((path, report))
+    return found
+
+
+def _adapt_comparison_report(report: Mapping[str, Any]) -> dict[str, Any]:
+    """Map saved FP32/PTQ comparison output into the dashboard report shape."""
+    required = {
+        "samples",
+        "fp32_accuracy",
+        "quantized_accuracy",
+        "prediction_agreement",
+        "per_class_accuracy",
+    }
+    missing = sorted(required - report.keys())
+    if missing:
+        return dict(report)
+
+    rows = report["per_class_accuracy"]
+    if not isinstance(rows, Mapping):
+        return dict(report)
+    classes = {
+        class_id: {
+            "samples": metrics.get("samples"),
+            "accuracy": {
+                "fp32": metrics.get("fp32_accuracy"),
+                "ptq": metrics.get("quantized_accuracy"),
+            },
+        }
+        for class_id, metrics in rows.items()
+        if isinstance(metrics, Mapping)
+    }
+    selection = report.get("selection")
+    if isinstance(selection, Mapping):
+        selection = dict(selection)
+        images = selection.pop("images", None)
+        if images is not None:
+            selection["image_records"] = len(images)
+    config = report.get("config")
+    if not isinstance(config, Mapping):
+        config = {}
+
+    result = {
+        key: value
+        for key, value in report.items()
+        if key not in {
+            "fp32_accuracy",
+            "quantized_accuracy",
+            "per_class_accuracy",
+            "prediction_agreement",
+            "selection",
+        }
+    }
+    result.update(
+        {
+            "dataset": (
+                selection.get("dataset") if isinstance(selection, Mapping) else None
+            )
+            or config.get("dataset"),
+            "split": (
+                selection.get("split") if isinstance(selection, Mapping) else None
+            )
+            or config.get("split"),
+            "accuracy": {
+                "fp32": report["fp32_accuracy"],
+                "ptq": report["quantized_accuracy"],
+            },
+            "prediction_agreement": {
+                "fp32_vs_ptq": report["prediction_agreement"],
+            },
+            "per_class": classes,
+            "coverage": {
+                "represented_classes": [
+                    int(class_id)
+                    for class_id, metrics in classes.items()
+                    if metrics["samples"]
+                ],
+            },
+        }
+    )
+    if selection is not None:
+        result["selection"] = selection
+    return result
 
 
 def _valid_score(score: Any) -> bool:
