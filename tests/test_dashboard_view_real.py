@@ -22,9 +22,14 @@ def test_dashboard_shows_saved_real_report():
 
     assert "Traffic Sign Analytics · GTSRB" in page
     assert "7,290 real images" in page
-    assert "Saved comparisons" in page
-    assert "<strong>1</strong><span>One report shown</span>" in page
-    assert "Model formats" in page
+    assert "Images evaluated" in page
+    assert f'<strong>{report["samples"]:,}</strong>' in page
+    represented = report["coverage"]["represented_classes"]
+    assert "Classes represented" in page
+    assert f'<strong>{len(represented)}</strong>' in page
+    assert f'of {len(report["classes"])} listed classes' in page
+    assert "Saved reports" in page
+    assert "<strong>1</strong><span>available for selection</span>" in page
     assert "FP32" in page
     assert "PTQ" in page
     assert "QAT" in page
@@ -47,6 +52,10 @@ def test_dashboard_shows_saved_real_report():
     assert "position: sticky" in page
     assert 'id="class-empty" hidden' in page
     assert 'tbody tr[data-search]' in page
+
+    options = [("first.html", "First"), ("second.html", "Second")]
+    multi_page = dashboard_html(report, options, "first.html")
+    assert "<strong>2</strong><span>available for selection</span>" in multi_page
 
 
 def test_dashboard_handles_missing_score_values():

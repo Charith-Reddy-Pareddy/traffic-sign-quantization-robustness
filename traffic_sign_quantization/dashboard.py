@@ -25,6 +25,7 @@ def dashboard_html(
     represented_count = len(represented) if represented is not None else sum(
         item["samples"] > 0 for item in report["classes"]
     )
+    report_count = len(report_options) if report_options else 1
     model_name = escape(str(report["provenance"].get("model") or "Not recorded"))
     reference = models.get("fp32", {}).get("accuracy")
     model_cards = "".join(
@@ -181,9 +182,9 @@ def dashboard_html(
       </section>
       {report_picker}
       <section class="summary" aria-label="Evaluation summary">
-        <article class="summary-card"><p>Saved comparisons</p><strong>1</strong><span>One report shown</span></article>
-        <article class="summary-card"><p>Model formats</p><strong>{len(models)}</strong><span>{escape(", ".join(model_names.values()))}</span></article>
-        <article class="summary-card"><p>Corruption results</p><strong>Not measured</strong><span>This is a clean validation report</span></article>
+        <article class="summary-card"><p>Images evaluated</p><strong>{sample_count:,}</strong><span>{dataset} {split}</span></article>
+        <article class="summary-card"><p>Classes represented</p><strong>{represented_count}</strong><span>of {len(report["classes"])} listed classes</span></article>
+        <article class="summary-card"><p>Saved reports</p><strong>{report_count}</strong><span>available for selection</span></article>
       </section>
       <section class="panel" id="models" aria-labelledby="models-title">
         <div class="panel-heading"><div><h2 id="models-title">Model comparison</h2><p>Accuracy bars use the same 0–100% scale; changes are relative to FP32.</p></div></div>
