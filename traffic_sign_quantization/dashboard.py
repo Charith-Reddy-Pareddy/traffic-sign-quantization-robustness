@@ -92,7 +92,7 @@ def dashboard_html(
             f'<select id="report-select">{options}</select></label></section>'
         )
     benchmark_panel = _benchmark_section(report)
-    benchmark_nav = '<a href="#benchmark">Benchmark</a>' if benchmark_panel else ""
+    benchmark_nav = '<a href="#benchmark">Benchmark</a>'
 
     return f"""<!doctype html>
 <html lang="en">
@@ -340,45 +340,69 @@ def _benchmark_section(report: Mapping[str, Any]) -> str:
         config = {}
     if not isinstance(runtime, Mapping):
         runtime = {}
-    if not isinstance(fp32, Mapping) or not isinstance(ptq, Mapping):
-        return ""
 
     rows = []
-    for name, label, timing, size_key in (
-        ("fp32", "FP32", fp32, "fp32_checkpoint_size_bytes"),
-        ("ptq", "PTQ", ptq, "quantized_checkpoint_size_bytes"),
-    ):
-        size = config.get(size_key)
-        size_text = (
-            f"{size / 1024:,.1f} KiB"
-            if isinstance(size, int) and not isinstance(size, bool) and size >= 0
-            else "Not recorded"
-        )
-        rows.append(
-            "<tr>"
-            f"<th scope=\"row\">{label}</th>"
-            f"<td>{_percent(report['models'].get(name, {}).get('accuracy'))}</td>"
-            f"<td>{_measure(timing.get('mean_ms'), ' ms')}</td>"
-            f"<td>{_measure(timing.get('p95_ms'), ' ms')}</td>"
-            f"<td>{_measure(timing.get('images_per_second'), ' images/s', 0)}</td>"
-            f"<td>{size_text}</td>"
-            "</tr>"
-        )
+    has_timing = isinstance(fp32, Mapping) or isinstance(ptq, Mapping)
+    if has_timing:
+        for name, label, timing, size_key in (
+            ("fp32", "FP32", fp32, "fp32_checkpoint_size_bytes"),
+            ("ptq", "PTQ", ptq, "quantized_checkpoint_size_bytes"),
+        ):
+            if not isinstance(timing, Mapping):
+                timing = {}
+            size = config.get(size_key)
+            size_text = (
+                f"{size / 1024:,.1f} KiB"
+                if isinstance(size, int) and not isinstance(size, bool) and size >= 0
+                else "Not recorded"
+            )
+            rows.append(
+                "<tr>"
+                f"<th scope=\"row\">{label}</th>"
+                f"<td>{_percent(report['models'].get(name, {}).get('accuracy'))}</td>"
+                f"<td>{_measure(timing.get('mean_ms'), ' ms')}</td>"
+                f"<td>{_measure(timing.get('p95_ms'), ' ms')}</td>"
+                f"<td>{_measure(timing.get('images_per_second'), ' images/s', 0)}</td>"
+                f"<td>{size_text}</td>"
+                "</tr>"
+            )
 
     reduction = config.get("checkpoint_size_reduction")
     reduction = reduction * 100 if _valid_measure(reduction) else None
     speedup = provenance.get("speedup")
     batch_size = config.get("batch_size")
     device = escape(str(runtime.get("device") or "Not recorded"))
+    benchmark_note = "No timing values in this report"
+    if has_timing:
+        batch_note = (
+            f" · batch size {batch_size}"
+            if isinstance(batch_size, int) and not isinstance(batch_size, bool)
+            else ""
+        )
+        benchmark_note = f"Saved measurements · {device}{batch_note}"
+    if has_timing:
+        body = (
+            '<div class="table-wrap"><table><thead><tr>'
+            '<th scope="col">Format</th><th scope="col">Accuracy</th>'
+            '<th scope="col">Mean latency</th><th scope="col">P95 latency</th>'
+            '<th scope="col">Throughput</th><th scope="col">Checkpoint size</th>'
+            f"</tr></thead><tbody>{''.join(rows)}</tbody></table></div>"
+            '<ul class="agreement" aria-label="Saved benchmark summary">'
+            f'<li><span>PTQ speedup</span><strong>{_measure(speedup, "×")}</strong></li>'
+            '<li><span>Checkpoint size reduction</span>'
+            f'<strong>{_measure(reduction, "%", 1)}</strong></li></ul>'
+            '<p class="note">Unrecorded benchmark fields are marked above. '
+            "This page does not rerun inference.</p>"
+        )
+    else:
+        body = (
+            '<p class="note">Timing data was not recorded in this report. '
+            "No inference measurements are displayed.</p>"
+        )
     return f"""
       <section class="panel" id="benchmark" aria-labelledby="benchmark-title">
-        <div class="panel-heading"><div><h2 id="benchmark-title">Inference benchmark</h2><p>Saved measurements · {device} · batch size {batch_size if isinstance(batch_size, int) and not isinstance(batch_size, bool) else 'not recorded'}</p></div></div>
-        <div class="table-wrap"><table><thead><tr><th scope="col">Format</th><th scope="col">Accuracy</th><th scope="col">Mean latency</th><th scope="col">P95 latency</th><th scope="col">Throughput</th><th scope="col">Checkpoint size</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>
-        <ul class="agreement" aria-label="Saved benchmark summary">
-          <li><span>PTQ speedup</span><strong>{_measure(speedup, '×')}</strong></li>
-          <li><span>Checkpoint size reduction</span><strong>{_measure(reduction, '%', 1)}</strong></li>
-        </ul>
-        <p class="note">Values are read from the saved report; this page does not rerun inference.</p>
+        <div class="panel-heading"><div><h2 id="benchmark-title">Inference benchmark</h2><p>{benchmark_note}</p></div></div>
+        {body}
       </section>
     """
 

@@ -44,6 +44,9 @@ def test_dashboard_shows_saved_real_report():
             assert f"{delta:+.1f} pp vs FP32" in page
     assert "Not measured" in page
     assert "Not recorded" in page
+    assert 'id="benchmark"' in page
+    assert "Timing data was not recorded in this report" in page
+    assert 'href="#benchmark"' in page
     assert 'id="class-search"' in page
     assert 'id="model-filter"' in page
     assert 'id="evaluations"' in page
