@@ -290,7 +290,10 @@ def main() -> None:
         "--output", type=Path, default=Path("artifacts/dashboard.html")
     )
     args = parser.parse_args()
-    output = create_dashboard(args.report, args.output)
+    try:
+        output = create_dashboard(args.report, args.output)
+    except (FileNotFoundError, ValueError) as exc:
+        parser.error(str(exc))
     print(f"saved dashboard to {output}")
 
 
