@@ -2,6 +2,7 @@ import argparse
 from collections.abc import Mapping
 from html import escape
 import json
+from math import isfinite
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -90,6 +91,8 @@ def dashboard_html(
             '<label for="report-select">Choose a saved report'
             f'<select id="report-select">{options}</select></label></section>'
         )
+    benchmark_panel = _benchmark_section(report)
+    benchmark_nav = '<a href="#benchmark">Benchmark</a>' if benchmark_panel else ""
 
     return f"""<!doctype html>
 <html lang="en">
@@ -168,6 +171,7 @@ def dashboard_html(
       <nav aria-label="Main navigation">
         <a href="#overview">Overview</a>
         <a href="#models">Models</a>
+        {benchmark_nav}
         <a href="#evaluations">Evaluations</a>
       </nav>
     </header>
@@ -191,6 +195,7 @@ def dashboard_html(
         <div class="model-grid" aria-label="Model accuracy">{model_cards}</div>
         <ul class="agreement" aria-label="Prediction agreement">{agreements}</ul>
       </section>
+      {benchmark_panel}
       <section class="panel" id="classes" aria-labelledby="classes-title">
         <div class="panel-heading"><div><h2 id="classes-title">Per-class accuracy</h2><p>Class counts and scores from the same {sample_count:,}-image report.</p></div></div>
         <div class="table-tools">
@@ -321,6 +326,71 @@ def _delta(value: float | None, reference: float | None, name: str) -> str:
     if reference is None:
         return "FP32 score unavailable"
     return f"{(value - reference) * 100:+.1f} pp vs FP32"
+
+
+def _benchmark_section(report: Mapping[str, Any]) -> str:
+    provenance = report.get("provenance", {})
+    if not isinstance(provenance, Mapping):
+        return ""
+    config = provenance.get("config", {})
+    runtime = provenance.get("runtime", {})
+    fp32 = provenance.get("fp32_timing")
+    ptq = provenance.get("quantized_timing")
+    if not isinstance(config, Mapping):
+        config = {}
+    if not isinstance(runtime, Mapping):
+        runtime = {}
+    if not isinstance(fp32, Mapping) or not isinstance(ptq, Mapping):
+        return ""
+
+    rows = []
+    for name, label, timing, size_key in (
+        ("fp32", "FP32", fp32, "fp32_checkpoint_size_bytes"),
+        ("ptq", "PTQ", ptq, "quantized_checkpoint_size_bytes"),
+    ):
+        size = config.get(size_key)
+        size_text = (
+            f"{size / 1024:,.1f} KiB"
+            if isinstance(size, int) and not isinstance(size, bool) and size >= 0
+            else "Not recorded"
+        )
+        rows.append(
+            "<tr>"
+            f"<th scope=\"row\">{label}</th>"
+            f"<td>{_percent(report['models'].get(name, {}).get('accuracy'))}</td>"
+            f"<td>{_measure(timing.get('mean_ms'), ' ms')}</td>"
+            f"<td>{_measure(timing.get('p95_ms'), ' ms')}</td>"
+            f"<td>{_measure(timing.get('images_per_second'), ' images/s', 0)}</td>"
+            f"<td>{size_text}</td>"
+            "</tr>"
+        )
+
+    reduction = config.get("checkpoint_size_reduction")
+    reduction = reduction * 100 if _valid_measure(reduction) else None
+    speedup = provenance.get("speedup")
+    batch_size = config.get("batch_size")
+    device = escape(str(runtime.get("device") or "Not recorded"))
+    return f"""
+      <section class="panel" id="benchmark" aria-labelledby="benchmark-title">
+        <div class="panel-heading"><div><h2 id="benchmark-title">Inference benchmark</h2><p>Saved measurements · {device} · batch size {batch_size if isinstance(batch_size, int) and not isinstance(batch_size, bool) else 'not recorded'}</p></div></div>
+        <div class="table-wrap"><table><thead><tr><th scope="col">Format</th><th scope="col">Accuracy</th><th scope="col">Mean latency</th><th scope="col">P95 latency</th><th scope="col">Throughput</th><th scope="col">Checkpoint size</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>
+        <ul class="agreement" aria-label="Saved benchmark summary">
+          <li><span>PTQ speedup</span><strong>{_measure(speedup, '×')}</strong></li>
+          <li><span>Checkpoint size reduction</span><strong>{_measure(reduction, '%', 1)}</strong></li>
+        </ul>
+        <p class="note">Values are read from the saved report; this page does not rerun inference.</p>
+      </section>
+    """
+
+
+def _valid_measure(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value)
+
+
+def _measure(value: Any, unit: str, digits: int = 2) -> str:
+    if not _valid_measure(value):
+        return "Not recorded"
+    return f"{value:,.{digits}f}{unit}"
 
 
 if __name__ == "__main__":
