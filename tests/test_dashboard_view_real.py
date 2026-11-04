@@ -49,12 +49,34 @@ def test_dashboard_shows_saved_real_report():
     assert 'href="#benchmark"' in page
     assert 'id="class-search"' in page
     assert 'id="model-filter"' in page
+    assert 'id="class-chart"' in page
+    assert 'role="listitem"' in page
+    assert "#class-chart [data-model]" in page
+    assert "chartRows" in page
     assert 'id="evaluations"' in page
     assert "Report provenance" in page
     assert "@media (max-width: 640px)" in page
     assert "position: sticky" in page
     assert 'id="class-empty" hidden' in page
     assert 'tbody tr[data-search]' in page
+
+
+def test_class_chart_uses_recorded_real_class_scores():
+    path = Path("artifacts/baseline_cnn_three_way_validation.json")
+    if not path.is_file():
+        pytest.skip(f"saved GTSRB report is unavailable: {path}")
+
+    report = load_report(path)
+    page = dashboard_html(report)
+    class_zero = report["classes"][0]
+
+    assert class_zero["class_id"] == 0
+    assert class_zero["samples"] == 30
+    assert 'data-search="class 0"' in page
+    assert 'style="--bar-width:66.67%"' in page
+    assert "-3.3 pp vs FP32" in page
+    assert "+10.0 pp vs FP32" in page
+    assert "absent values are not treated as zero" in page
 
     options = [("first.html", "First"), ("second.html", "Second")]
     multi_page = dashboard_html(report, options, "first.html")

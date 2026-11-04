@@ -59,6 +59,10 @@ def dashboard_html(
         + "</tr>"
         for item in report["classes"]
     )
+    class_chart = "".join(
+        _class_comparison(item, models, model_names)
+        for item in report["classes"]
+    )
     empty_class_row = (
         f'<tr id="class-empty" hidden><td colspan="{len(models) + 2}">'
         "No classes match your search.</td></tr>"
@@ -142,6 +146,19 @@ def dashboard_html(
       .agreement li {{ display: flex; gap: 10px; color: #657385; font-size: 13px; }}
       .agreement strong {{ color: #202a35; }}
       .table-tools {{ display: flex; align-items: end; flex-wrap: wrap; gap: 12px; padding: 16px 22px 8px; }}
+      .class-chart {{ display: grid; gap: 10px; padding: 14px 22px 20px; }}
+      .class-chart-row {{ display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 16px; align-items: start; padding: 10px 0; border-bottom: 1px solid #edf0f4; }}
+      .class-chart-label {{ display: grid; gap: 2px; color: #657385; font-size: 12px; }}
+      .class-chart-label strong {{ color: #202a35; }}
+      .class-chart-models {{ display: grid; gap: 7px; }}
+      .class-chart-model {{ display: grid; grid-template-columns: 44px minmax(50px, 1fr) 48px minmax(90px, auto); gap: 9px; align-items: center; color: #657385; font-size: 11px; }}
+      .class-chart-model strong {{ color: #202a35; font-variant-numeric: tabular-nums; }}
+      .bar-track {{ height: 9px; overflow: hidden; border-radius: 6px; background: #edf1f6; }}
+      .bar-fill {{ display: block; height: 100%; width: var(--bar-width); border-radius: inherit; background: #356ac3; }}
+      .class-chart-model[data-model="ptq"] .bar-fill {{ background: #d18432; }}
+      .class-chart-model[data-model="qat"] .bar-fill {{ background: #357b54; }}
+      .class-chart-delta {{ color: #748091; font-size: 10px; }}
+      .class-chart-note {{ padding: 0 22px; color: #748091; font-size: 11px; }}
       label {{ display: grid; gap: 5px; color: #657385; font-size: 12px; }}
       input, select {{ min-height: 38px; padding: 7px 10px; border: 1px solid #cbd4df; border-radius: 7px; background: #fff; color: #202a35; font: inherit; }}
       input {{ width: min(270px, 75vw); }}
@@ -160,6 +177,7 @@ def dashboard_html(
       pre {{ overflow: auto; padding: 14px; border-radius: 8px; background: #f3f6fa; font-size: 12px; }}
       [hidden] {{ display: none !important; }}
       @media (max-width: 640px) {{ .topbar {{ align-items: flex-start; flex-direction: column; gap: 8px; padding-top: 12px; }} nav {{ min-height: 42px; gap: 20px; }} main {{ width: 92vw; margin-top: 30px; }} .intro {{ align-items: flex-start; flex-direction: column; }} .summary {{ grid-template-columns: 1fr; gap: 10px; }} .summary-card {{ padding: 15px 17px; }} .panel-heading {{ align-items: flex-start; flex-direction: column; }} .results-count {{ width: 100%; margin-left: 0; }} }}
+      @media (max-width: 480px) {{ .class-chart-row {{ grid-template-columns: 1fr; gap: 8px; }} .class-chart-model {{ grid-template-columns: 38px minmax(35px, 1fr) 42px; }} .class-chart-delta {{ grid-column: 2 / -1; }} }}
     </style>
   </head>
   <body>
@@ -197,12 +215,14 @@ def dashboard_html(
       </section>
       {benchmark_panel}
       <section class="panel" id="classes" aria-labelledby="classes-title">
-        <div class="panel-heading"><div><h2 id="classes-title">Per-class accuracy</h2><p>Class counts and scores from the same {sample_count:,}-image report.</p></div></div>
+        <div class="panel-heading"><div><h2 id="classes-title">Per-class accuracy</h2><p>Compare recorded model scores for each class in this {sample_count:,}-image report.</p></div></div>
         <div class="table-tools">
           <label for="class-search">Search classes<input id="class-search" type="search" placeholder="For example, 17" autocomplete="off"></label>
           <label for="model-filter">Show accuracy for<select id="model-filter"><option value="all">All formats</option>{''.join(f'<option value="{escape(name)}">{escape(label)}</option>' for name, label in model_names.items())}</select></label>
           <p class="results-count" id="class-count" role="status" aria-live="polite">Showing {len(report["classes"])} classes</p>
         </div>
+        <div class="class-chart" id="class-chart" role="list" aria-label="Per-class model accuracy comparison">{class_chart}</div>
+        <p class="class-chart-note">Bars use the same 0–100% scale. Changes are percentage points relative to FP32; absent values are not treated as zero.</p>
         <div class="table-wrap"><table id="class-table"><thead><tr><th scope="col">Class</th><th scope="col">Samples</th>{model_headers}</tr></thead><tbody>{class_rows}{empty_class_row}</tbody></table></div>
       </section>
       <section class="panel" id="evaluations" aria-labelledby="evaluations-title">
@@ -217,6 +237,7 @@ def dashboard_html(
       const modelFilter = document.querySelector("#model-filter");
       const reportSelect = document.querySelector("#report-select");
       const rows = [...document.querySelectorAll("#class-table tbody tr[data-search]")];
+      const chartRows = [...document.querySelectorAll("#class-chart .class-chart-row")];
       const emptyRow = document.querySelector("#class-empty");
       const count = document.querySelector("#class-count");
       function updateClasses() {{
@@ -226,9 +247,12 @@ def dashboard_html(
           row.hidden = Boolean(query) && row.dataset.search !== `class ${{query}}`;
           if (!row.hidden) visible += 1;
         }}
+        for (const row of chartRows) {{
+          row.hidden = Boolean(query) && row.dataset.search !== `class ${{query}}`;
+        }}
         emptyRow.hidden = visible !== 0;
-        for (const cell of document.querySelectorAll("#class-table [data-model]")) {{
-          cell.hidden = modelFilter.value !== "all" && cell.dataset.model !== modelFilter.value;
+        for (const model of document.querySelectorAll("#class-table [data-model], #class-chart [data-model]")) {{
+          model.hidden = modelFilter.value !== "all" && model.dataset.model !== modelFilter.value;
         }}
         count.textContent = `Showing ${{visible}} of ${{rows.length}} classes`;
       }}
@@ -405,6 +429,42 @@ def _benchmark_section(report: Mapping[str, Any]) -> str:
         {body}
       </section>
     """
+
+
+def _class_comparison(
+    item: Mapping[str, Any],
+    models: Mapping[str, Any],
+    model_names: Mapping[str, str],
+) -> str:
+    class_id = item["class_id"]
+    sample_count = item["samples"]
+    scores = item["accuracy"]
+    reference = scores.get("fp32")
+    model_rows = []
+    for name in models:
+        score = scores.get(name)
+        if score is None:
+            note = "No samples" if sample_count == 0 else "Not recorded"
+            bar = f'<span class="class-chart-note">{note}</span>'
+        else:
+            width = score * 100
+            bar = (
+                f'<span class="bar-track" aria-hidden="true"><span '
+                f'class="bar-fill" style="--bar-width:{width:.2f}%"></span></span>'
+            )
+        model_rows.append(
+            f'<div class="class-chart-model" data-model="{escape(name)}">'
+            f'<span>{escape(model_names[name])}</span>{bar}'
+            f'<strong>{_percent(score)}</strong>'
+            f'<span class="class-chart-delta">'
+            f'{escape(_delta(score, reference, name))}</span></div>'
+        )
+    return (
+        f'<article class="class-chart-row" data-search="class {class_id}" '
+        f'role="listitem"><div class="class-chart-label">'
+        f'<strong>Class {class_id}</strong><span>{sample_count:,} images</span>'
+        f'</div><div class="class-chart-models">{"".join(model_rows)}</div></article>'
+    )
 
 
 def _valid_measure(value: Any) -> bool:
