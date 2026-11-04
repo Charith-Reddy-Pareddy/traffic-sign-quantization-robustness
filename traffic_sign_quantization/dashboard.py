@@ -49,7 +49,8 @@ def dashboard_html(
     )
     class_rows = "".join(
         '<tr data-search="class '
-        f'{item["class_id"]}"><th scope="row">{item["class_id"]}</th>'
+        f'{item["class_id"]}" {_class_data_attributes(item)}>'
+        f'<th scope="row">{item["class_id"]}</th>'
         f'<td>{item["samples"]:,}</td>'
         + "".join(
             f'<td data-model="{escape(name)}">'
@@ -219,6 +220,7 @@ def dashboard_html(
         <div class="table-tools">
           <label for="class-search">Search classes<input id="class-search" type="search" placeholder="For example, 17" autocomplete="off"></label>
           <label for="model-filter">Show accuracy for<select id="model-filter"><option value="all">All formats</option>{''.join(f'<option value="{escape(name)}">{escape(label)}</option>' for name, label in model_names.items())}</select></label>
+          <label for="class-sort">Sort classes<select id="class-sort"><option value="class">Class number</option><option value="samples">Most samples</option><option value="ptq-drop">Largest PTQ drop vs FP32</option></select></label>
           <p class="results-count" id="class-count" role="status" aria-live="polite">Showing {len(report["classes"])} classes</p>
         </div>
         <div class="class-chart" id="class-chart" role="list" aria-label="Per-class model accuracy comparison">{class_chart}</div>
@@ -235,12 +237,49 @@ def dashboard_html(
     <script>
       const search = document.querySelector("#class-search");
       const modelFilter = document.querySelector("#model-filter");
+      const sortSelect = document.querySelector("#class-sort");
       const reportSelect = document.querySelector("#report-select");
       const rows = [...document.querySelectorAll("#class-table tbody tr[data-search]")];
       const chartRows = [...document.querySelectorAll("#class-chart .class-chart-row")];
+      const chart = document.querySelector("#class-chart");
+      const tableBody = document.querySelector("#class-table tbody");
+      const tableRows = new Map(rows.map(row => [row.dataset.classId, row]));
       const emptyRow = document.querySelector("#class-empty");
       const count = document.querySelector("#class-count");
+      function score(row, name) {{
+        const value = row.dataset[name];
+        if (value === "") return null;
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : null;
+      }}
+      function sortClasses() {{
+        const mode = sortSelect.value;
+        const ordered = [...chartRows].sort((a, b) => {{
+          if (mode === "samples") {{
+            return Number(b.dataset.samples) - Number(a.dataset.samples)
+              || Number(a.dataset.classId) - Number(b.dataset.classId);
+          }}
+          if (mode === "ptq-drop") {{
+            const drop = row => {{
+              const fp32 = score(row, "fp32");
+              const ptq = score(row, "ptq");
+              return fp32 === null || ptq === null ? null : fp32 - ptq;
+            }};
+            const aDrop = drop(a);
+            const bDrop = drop(b);
+            if (aDrop === null) return bDrop === null ? 0 : 1;
+            if (bDrop === null) return -1;
+            return bDrop - aDrop || Number(a.dataset.classId) - Number(b.dataset.classId);
+          }}
+          return Number(a.dataset.classId) - Number(b.dataset.classId);
+        }});
+        for (const row of ordered) {{
+          chart.append(row);
+          tableBody.insertBefore(tableRows.get(row.dataset.classId), emptyRow);
+        }}
+      }}
       function updateClasses() {{
+        sortClasses();
         const query = search.value.trim().toLowerCase().replace(/^class\\s+/, "");
         let visible = 0;
         for (const row of rows) {{
@@ -258,6 +297,7 @@ def dashboard_html(
       }}
       search.addEventListener("input", updateClasses);
       modelFilter.addEventListener("change", updateClasses);
+      sortSelect.addEventListener("change", updateClasses);
       if (reportSelect) {{
         reportSelect.addEventListener("change", () => {{
           window.location.href = reportSelect.value;
@@ -461,9 +501,24 @@ def _class_comparison(
         )
     return (
         f'<article class="class-chart-row" data-search="class {class_id}" '
+        f'{_class_data_attributes(item)} '
         f'role="listitem"><div class="class-chart-label">'
         f'<strong>Class {class_id}</strong><span>{sample_count:,} images</span>'
         f'</div><div class="class-chart-models">{"".join(model_rows)}</div></article>'
+    )
+
+
+def _class_data_attributes(item: Mapping[str, Any]) -> str:
+    scores = item["accuracy"]
+    fp32 = scores.get("fp32")
+    ptq = scores.get("ptq")
+    fp32_value = "" if fp32 is None else format(fp32, ".12g")
+    ptq_value = "" if ptq is None else format(ptq, ".12g")
+    return (
+        f'data-class-id="{item["class_id"]}" '
+        f'data-samples="{item["samples"]}" '
+        f'data-fp32="{escape(fp32_value, quote=True)}" '
+        f'data-ptq="{escape(ptq_value, quote=True)}"'
     )
 
 
