@@ -14,6 +14,7 @@ def dashboard_html(
     report: Mapping[str, Any],
     report_options: list[tuple[str, str]] | None = None,
     selected_report: str | None = None,
+    report_summaries: list[tuple[str, str, Mapping[str, Any]]] | None = None,
 ) -> str:
     """Render a saved model comparison with the fields its report provides."""
     models = report["models"]
@@ -98,6 +99,8 @@ def dashboard_html(
         )
     benchmark_panel = _benchmark_section(report)
     benchmark_nav = '<a href="#benchmark">Benchmark</a>'
+    report_nav = '<a href="#saved-reports">Reports</a>' if report_summaries else ""
+    report_summary = _saved_report_section(report_summaries)
 
     return f"""<!doctype html>
 <html lang="en">
@@ -191,6 +194,7 @@ def dashboard_html(
         <a href="#overview">Overview</a>
         <a href="#models">Models</a>
         {benchmark_nav}
+        {report_nav}
         <a href="#evaluations">Evaluations</a>
       </nav>
     </header>
@@ -204,6 +208,7 @@ def dashboard_html(
         <span class="status"><span class="status-dot" aria-hidden="true"></span>Saved report loaded</span>
       </section>
       {report_picker}
+      {report_summary}
       <section class="summary" aria-label="Evaluation summary">
         <article class="summary-card"><p>Images evaluated</p><strong>{sample_count:,}</strong><span>{dataset} {split}</span></article>
         <article class="summary-card"><p>Classes represented</p><strong>{represented_count}</strong><span>of {len(report["classes"])} listed classes</span></article>
@@ -346,7 +351,18 @@ def create_dashboard(report_path: str | Path, output_path: str | Path) -> Path:
             options = detail_options
             selected = detail_options[index][0]
         target.write_text(
-            dashboard_html(report, options, selected), encoding="utf-8"
+            dashboard_html(
+                report,
+                options,
+                selected,
+                [
+                    (root_options[i][0], reports[i][0].stem, reports[i][1])
+                    for i in range(len(reports))
+                ]
+                if index == 0
+                else None,
+            ),
+            encoding="utf-8",
         )
     return output
 
@@ -390,6 +406,45 @@ def _delta(value: float | None, reference: float | None, name: str) -> str:
     if reference is None:
         return "FP32 score unavailable"
     return f"{(value - reference) * 100:+.1f} pp vs FP32"
+
+
+def _saved_report_section(
+    summaries: list[tuple[str, str, Mapping[str, Any]]] | None,
+) -> str:
+    if not summaries:
+        return ""
+
+    rows = []
+    for href, filename, report in summaries:
+        provenance = report.get("provenance", {})
+        selection = provenance.get("selection", {}) if isinstance(provenance, Mapping) else {}
+        cohort = selection.get("selection") if isinstance(selection, Mapping) else None
+        cohort = str(cohort).replace("_", " ").title() if cohort else "Not recorded"
+        models = report.get("models", {})
+        scores = []
+        for name in ("fp32", "ptq", "qat"):
+            metrics = models.get(name, {}) if isinstance(models, Mapping) else {}
+            score = metrics.get("accuracy") if isinstance(metrics, Mapping) else None
+            scores.append(_percent(score) if score is not None else "Not recorded")
+        rows.append(
+            "<tr>"
+            f'<th scope="row"><a href="{escape(href, quote=True)}">'
+            f'{escape(filename)}</a></th>'
+            f'<td>{escape(str(report.get("dataset") or "Not recorded"))}</td>'
+            f'<td>{escape(str(report.get("split") or "Not recorded"))}</td>'
+            f'<td>{escape(cohort)}</td>'
+            f'<td>{report["samples"]:,}</td>'
+            + "".join(f"<td>{score}</td>" for score in scores)
+            + "</tr>"
+        )
+
+    return f"""
+      <section class="panel" id="saved-reports" aria-labelledby="saved-reports-title">
+        <div class="panel-heading"><div><h2 id="saved-reports-title">Saved report overview</h2><p>Recorded scores and sample counts from each saved evaluation.</p></div></div>
+        <div class="table-wrap"><table><thead><tr><th scope="col">Report</th><th scope="col">Dataset</th><th scope="col">Split</th><th scope="col">Selection</th><th scope="col">Images</th><th scope="col">FP32</th><th scope="col">PTQ</th><th scope="col">QAT</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>
+        <p class="note">Rows retain each report’s own split and selection. Values are not pooled or presented as matched-sample comparisons; missing scores are marked “Not recorded.”</p>
+      </section>
+    """
 
 
 def _benchmark_section(report: Mapping[str, Any]) -> str:
