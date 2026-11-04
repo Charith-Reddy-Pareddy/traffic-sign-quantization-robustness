@@ -73,10 +73,24 @@ def test_class_chart_uses_recorded_real_class_scores():
     assert class_zero["class_id"] == 0
     assert class_zero["samples"] == 30
     assert 'data-search="class 0"' in page
+    assert (
+        'data-class-id="0" data-samples="30" '
+        'data-fp32="0.666666666667" data-ptq="0.633333333333"'
+    ) in page
     assert 'style="--bar-width:66.67%"' in page
     assert "-3.3 pp vs FP32" in page
     assert "+10.0 pp vs FP32" in page
     assert "absent values are not treated as zero" in page
+    assert 'id="class-sort"' in page
+    assert 'option value="samples">Most samples' in page
+    assert 'option value="ptq-drop">Largest PTQ drop vs FP32' in page
+    assert 'data-class-id="0" data-samples="30"' in page
+    assert 'data-class-id="42"' in page
+    assert "sortClasses();" in page
+    assert "#class-table tbody tr[data-search]" in page
+    assert "#class-chart .class-chart-row" in page
+    assert 'sortSelect.addEventListener("change", updateClasses)' in page
+    assert 'modelFilter.addEventListener("change", updateClasses)' in page
 
     options = [("first.html", "First"), ("second.html", "Second")]
     multi_page = dashboard_html(report, options, "first.html")
