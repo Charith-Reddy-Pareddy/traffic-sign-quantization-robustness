@@ -168,7 +168,9 @@ def dashboard_html(
       input {{ width: min(270px, 75vw); }}
       input:focus, select:focus, a:focus {{ outline: 3px solid #9cc0f4; outline-offset: 2px; }}
       .results-count {{ margin: 0 0 8px auto; color: #748091; font-size: 12px; }}
-      .table-wrap {{ overflow-x: auto; }}
+      .table-wrap {{ overflow-x: auto; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }}
+      .table-wrap[tabindex="0"]:focus-visible {{ outline: 3px solid #9cc0f4; outline-offset: 2px; }}
+      .visually-hidden {{ position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }}
       table {{ width: 100%; border-collapse: collapse; text-align: left; white-space: nowrap; }}
       th, td {{ padding: 12px 18px; border-bottom: 1px solid #edf0f4; font-size: 12px; }}
       th {{ background: #fafbfd; color: #768293; font-weight: 600; }}
@@ -235,11 +237,11 @@ def dashboard_html(
         </div>
         <div class="class-chart" id="class-chart" role="list" aria-label="Per-class model accuracy comparison">{class_chart}</div>
         <p class="class-chart-note">Bars use the same 0–100% scale. Changes are percentage points relative to FP32; absent values are not treated as zero.</p>
-        <div class="table-wrap"><table id="class-table"><thead><tr><th scope="col">Class</th><th scope="col">Samples</th>{model_headers}</tr></thead><tbody>{class_rows}{empty_class_row}</tbody></table></div>
+        <div class="table-wrap" role="region" tabindex="0" aria-label="Per-class accuracy table"><table id="class-table"><thead><tr><th scope="col">Class</th><th scope="col">Samples</th>{model_headers}</tr></thead><tbody>{class_rows}{empty_class_row}</tbody></table></div>
       </section>
       <section class="panel" id="evaluations" aria-labelledby="evaluations-title">
         <div class="panel-heading"><div><h2 id="evaluations-title">Evaluation report</h2><p>Fields not recorded in the source report are identified below.</p></div></div>
-        <div class="table-wrap"><table><thead><tr><th scope="col">Run</th><th scope="col">Model</th><th scope="col">Format</th><th scope="col">Accuracy</th><th scope="col">Robustness</th><th scope="col">Date</th></tr></thead><tbody>{evaluation_rows}</tbody></table></div>
+        <div class="table-wrap" role="region" tabindex="0" aria-label="Evaluation report table"><table><thead><tr><th scope="col">Run</th><th scope="col">Model</th><th scope="col">Format</th><th scope="col">Accuracy</th><th scope="col">Robustness</th><th scope="col">Date</th></tr></thead><tbody>{evaluation_rows}</tbody></table></div>
         <p class="note">Robustness results and run dates are not present in this validation report.</p>
       </section>
       <details><summary>Report provenance</summary><pre>{provenance}</pre></details>
@@ -250,6 +252,7 @@ def dashboard_html(
       const sortSelect = document.querySelector("#class-sort");
       const reportSelect = document.querySelector("#report-select");
       const overview = document.querySelector("#report-overview");
+      const sortStatus = document.querySelector("#report-sort-status");
       const rows = [...document.querySelectorAll("#class-table tbody tr[data-search]")];
       const chartRows = [...document.querySelectorAll("#class-chart .class-chart-row")];
       const chart = document.querySelector("#class-chart");
@@ -339,8 +342,10 @@ def dashboard_html(
                 ? sortDirection === 1 ? "ascending" : "descending"
                 : "none");
             }}
+            sortStatus.textContent = "Sorted by " + button.textContent.trim()
+              + (sortDirection === 1 ? ", ascending." : ", descending.");
           }});
-        }});
+        }}
       }}
     </script>
   </body>
@@ -503,7 +508,8 @@ def _saved_report_section(
     return f"""
       <section class="panel" id="saved-reports" aria-labelledby="saved-reports-title">
         <div class="panel-heading"><div><h2 id="saved-reports-title">Saved report overview</h2><p>Recorded scores and sample counts from each saved evaluation.</p></div></div>
-        <div class="table-wrap"><table id="report-overview"><thead><tr>{''.join(f'<th scope="col" aria-sort="none"><button class="sort-button" type="button" data-sort-column="{index}">{label}</button></th>' for index, label in enumerate(("Report", "Dataset", "Split", "Selection", "Images", "FP32", "PTQ", "QAT", "FP32 mean", "PTQ mean", "PTQ speedup", "Size reduction")))}</tr></thead><tbody>{''.join(rows)}</tbody></table></div>
+        <div class="table-wrap" role="region" tabindex="0" aria-label="Saved report comparison"><table id="report-overview"><thead><tr>{''.join(f'<th scope="col" aria-sort="none"><button class="sort-button" type="button" data-sort-column="{index}">{label}</button></th>' for index, label in enumerate(("Report", "Dataset", "Split", "Selection", "Images", "FP32", "PTQ", "QAT", "FP32 mean", "PTQ mean", "PTQ speedup", "Size reduction")))}</tr></thead><tbody>{''.join(rows)}</tbody></table></div>
+        <p class="visually-hidden" id="report-sort-status" role="status" aria-live="polite"></p>
         <p class="note">The selected report is marked. Benchmark values are copied from each saved run. Rows retain their own split and selection; results are not pooled or presented as matched-sample comparisons. Missing fields are marked “Not recorded.”</p>
       </section>
     """
@@ -563,7 +569,7 @@ def _benchmark_section(report: Mapping[str, Any]) -> str:
         benchmark_note = f"Saved measurements · {device}{batch_note}"
     if has_timing:
         body = (
-            '<div class="table-wrap"><table><thead><tr>'
+            '<div class="table-wrap" role="region" tabindex="0" aria-label="Inference benchmark results"><table><thead><tr>'
             '<th scope="col">Format</th><th scope="col">Accuracy</th>'
             '<th scope="col">Mean latency</th><th scope="col">P95 latency</th>'
             '<th scope="col">Throughput</th><th scope="col">Checkpoint size</th>'
