@@ -100,7 +100,7 @@ def dashboard_html(
     benchmark_panel = _benchmark_section(report)
     benchmark_nav = '<a href="#benchmark">Benchmark</a>'
     report_nav = '<a href="#saved-reports">Reports</a>' if report_summaries else ""
-    report_summary = _saved_report_section(report_summaries)
+    report_summary = _saved_report_section(report_summaries, selected_report)
 
     return f"""<!doctype html>
 <html lang="en">
@@ -177,6 +177,7 @@ def dashboard_html(
       th[aria-sort="ascending"] .sort-button::after {{ content: " ↑"; }}
       th[aria-sort="descending"] .sort-button::after {{ content: " ↓"; }}
       tbody th {{ color: #202a35; }}
+      #saved-reports a[aria-current="page"] {{ color: #244f91; font-weight: 650; }}
       #class-table tbody th {{ position: sticky; left: 0; z-index: 1; background: #fff; }}
       #class-table thead th:first-child {{ position: sticky; left: 0; z-index: 2; }}
       .note {{ padding: 0 22px 18px; color: #748091; font-size: 12px; }}
@@ -443,12 +444,14 @@ def _delta(value: float | None, reference: float | None, name: str) -> str:
 
 def _saved_report_section(
     summaries: list[tuple[str, str, Mapping[str, Any]]] | None,
+    selected_report: str | None = None,
 ) -> str:
     if not summaries:
         return ""
 
     rows = []
     for href, filename, report in summaries:
+        current = ' aria-current="page"' if href == selected_report else ""
         provenance = report.get("provenance", {})
         selection = provenance.get("selection", {}) if isinstance(provenance, Mapping) else {}
         cohort = selection.get("selection") if isinstance(selection, Mapping) else None
@@ -480,7 +483,7 @@ def _saved_report_section(
         cohort_sort = escape(cohort.casefold(), quote=True)
         rows.append(
             "<tr>"
-            f'<th scope="row" data-sort-value="{report_name}"><a href="{escape(href, quote=True)}">'
+            f'<th scope="row" data-sort-value="{report_name}"><a href="{escape(href, quote=True)}"{current}>'
             f'{escape(filename)}</a></th>'
             f'<td data-sort-value="{dataset}">{escape(str(report.get("dataset") or "Not recorded"))}</td>'
             f'<td data-sort-value="{split}">{escape(str(report.get("split") or "Not recorded"))}</td>'
@@ -501,7 +504,7 @@ def _saved_report_section(
       <section class="panel" id="saved-reports" aria-labelledby="saved-reports-title">
         <div class="panel-heading"><div><h2 id="saved-reports-title">Saved report overview</h2><p>Recorded scores and sample counts from each saved evaluation.</p></div></div>
         <div class="table-wrap"><table id="report-overview"><thead><tr>{''.join(f'<th scope="col" aria-sort="none"><button class="sort-button" type="button" data-sort-column="{index}">{label}</button></th>' for index, label in enumerate(("Report", "Dataset", "Split", "Selection", "Images", "FP32", "PTQ", "QAT", "FP32 mean", "PTQ mean", "PTQ speedup", "Size reduction")))}</tr></thead><tbody>{''.join(rows)}</tbody></table></div>
-        <p class="note">Benchmark values are copied from each saved run. Rows retain their own split and selection; results are not pooled or presented as matched-sample comparisons. Missing fields are marked “Not recorded.”</p>
+        <p class="note">The selected report is marked. Benchmark values are copied from each saved run. Rows retain their own split and selection; results are not pooled or presented as matched-sample comparisons. Missing fields are marked “Not recorded.”</p>
       </section>
     """
 
