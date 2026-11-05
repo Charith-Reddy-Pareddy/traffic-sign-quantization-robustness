@@ -172,6 +172,10 @@ def dashboard_html(
       table {{ width: 100%; border-collapse: collapse; text-align: left; white-space: nowrap; }}
       th, td {{ padding: 12px 18px; border-bottom: 1px solid #edf0f4; font-size: 12px; }}
       th {{ background: #fafbfd; color: #768293; font-weight: 600; }}
+      .sort-button {{ padding: 0; border: 0; background: none; color: inherit; font: inherit; font-weight: inherit; text-align: left; cursor: pointer; }}
+      .sort-button:hover, .sort-button:focus {{ color: #244f91; }}
+      th[aria-sort="ascending"] .sort-button::after {{ content: " ↑"; }}
+      th[aria-sort="descending"] .sort-button::after {{ content: " ↓"; }}
       tbody th {{ color: #202a35; }}
       #class-table tbody th {{ position: sticky; left: 0; z-index: 1; background: #fff; }}
       #class-table thead th:first-child {{ position: sticky; left: 0; z-index: 2; }}
@@ -244,6 +248,7 @@ def dashboard_html(
       const modelFilter = document.querySelector("#model-filter");
       const sortSelect = document.querySelector("#class-sort");
       const reportSelect = document.querySelector("#report-select");
+      const overview = document.querySelector("#report-overview");
       const rows = [...document.querySelectorAll("#class-table tbody tr[data-search]")];
       const chartRows = [...document.querySelectorAll("#class-chart .class-chart-row")];
       const chart = document.querySelector("#class-chart");
@@ -306,6 +311,34 @@ def dashboard_html(
       if (reportSelect) {{
         reportSelect.addEventListener("change", () => {{
           window.location.href = reportSelect.value;
+        }});
+      }}
+      if (overview) {{
+        const overviewBody = overview.tBodies[0];
+        let sortColumn = -1;
+        let sortDirection = 1;
+        for (const button of overview.querySelectorAll("[data-sort-column]")) {{
+          button.addEventListener("click", () => {{
+            const column = Number(button.dataset.sortColumn);
+            sortDirection = column === sortColumn ? -sortDirection : 1;
+            sortColumn = column;
+            const rows = [...overviewBody.rows];
+            rows.sort((a, b) => {{
+              const left = a.cells[column].dataset.sortValue ?? "";
+              const right = b.cells[column].dataset.sortValue ?? "";
+              if (left === "" || right === "") return left === right ? 0 : left === "" ? 1 : -1;
+              const result = column < 4
+                ? left.localeCompare(right)
+                : Number(left) - Number(right);
+              return result * sortDirection;
+            }});
+            for (const row of rows) overviewBody.append(row);
+            for (const header of overview.querySelectorAll("thead th")) {{
+              header.setAttribute("aria-sort", header === button.closest("th")
+                ? sortDirection === 1 ? "ascending" : "descending"
+                : "none");
+            }}
+          }});
         }});
       }}
     </script>
@@ -431,34 +464,43 @@ def _saved_report_section(
         if not isinstance(ptq_timing, Mapping):
             ptq_timing = {}
         scores = []
+        score_values = []
         for name in ("fp32", "ptq", "qat"):
             metrics = models.get(name, {}) if isinstance(models, Mapping) else {}
             score = metrics.get("accuracy") if isinstance(metrics, Mapping) else None
             scores.append(_percent(score) if score is not None else "Not recorded")
+            score_values.append(_sort_number(score))
         size_reduction = config.get("checkpoint_size_reduction")
         size_reduction = (
             size_reduction * 100 if _valid_measure(size_reduction) else None
         )
+        report_name = escape(filename.casefold(), quote=True)
+        dataset = escape(str(report.get("dataset") or "Not recorded"), quote=True)
+        split = escape(str(report.get("split") or "Not recorded"), quote=True)
+        cohort_sort = escape(cohort.casefold(), quote=True)
         rows.append(
             "<tr>"
-            f'<th scope="row"><a href="{escape(href, quote=True)}">'
+            f'<th scope="row" data-sort-value="{report_name}"><a href="{escape(href, quote=True)}">'
             f'{escape(filename)}</a></th>'
-            f'<td>{escape(str(report.get("dataset") or "Not recorded"))}</td>'
-            f'<td>{escape(str(report.get("split") or "Not recorded"))}</td>'
-            f'<td>{escape(cohort)}</td>'
-            f'<td>{report["samples"]:,}</td>'
-            + "".join(f"<td>{score}</td>" for score in scores)
-            + f'<td>{_measure(fp32_timing.get("mean_ms"), " ms")}</td>'
-            + f'<td>{_measure(ptq_timing.get("mean_ms"), " ms")}</td>'
-            + f'<td>{_measure(provenance.get("speedup"), "×")}</td>'
-            + f'<td>{_measure(size_reduction, "%", 1)}</td>'
+            f'<td data-sort-value="{dataset}">{escape(str(report.get("dataset") or "Not recorded"))}</td>'
+            f'<td data-sort-value="{split}">{escape(str(report.get("split") or "Not recorded"))}</td>'
+            f'<td data-sort-value="{cohort_sort}">{escape(cohort)}</td>'
+            f'<td data-sort-value="{report["samples"]}">{report["samples"]:,}</td>'
+            + "".join(
+                f'<td data-sort-value="{value}">{score}</td>'
+                for score, value in zip(scores, score_values)
+            )
+            + f'<td data-sort-value="{_sort_number(fp32_timing.get("mean_ms"))}">{_measure(fp32_timing.get("mean_ms"), " ms")}</td>'
+            + f'<td data-sort-value="{_sort_number(ptq_timing.get("mean_ms"))}">{_measure(ptq_timing.get("mean_ms"), " ms")}</td>'
+            + f'<td data-sort-value="{_sort_number(provenance.get("speedup"))}">{_measure(provenance.get("speedup"), "×")}</td>'
+            + f'<td data-sort-value="{_sort_number(size_reduction)}">{_measure(size_reduction, "%", 1)}</td>'
             + "</tr>"
         )
 
     return f"""
       <section class="panel" id="saved-reports" aria-labelledby="saved-reports-title">
         <div class="panel-heading"><div><h2 id="saved-reports-title">Saved report overview</h2><p>Recorded scores and sample counts from each saved evaluation.</p></div></div>
-        <div class="table-wrap"><table><thead><tr><th scope="col">Report</th><th scope="col">Dataset</th><th scope="col">Split</th><th scope="col">Selection</th><th scope="col">Images</th><th scope="col">FP32</th><th scope="col">PTQ</th><th scope="col">QAT</th><th scope="col">FP32 mean</th><th scope="col">PTQ mean</th><th scope="col">PTQ speedup</th><th scope="col">Size reduction</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>
+        <div class="table-wrap"><table id="report-overview"><thead><tr>{''.join(f'<th scope="col" aria-sort="none"><button class="sort-button" type="button" data-sort-column="{index}">{label}</button></th>' for index, label in enumerate(("Report", "Dataset", "Split", "Selection", "Images", "FP32", "PTQ", "QAT", "FP32 mean", "PTQ mean", "PTQ speedup", "Size reduction")))}</tr></thead><tbody>{''.join(rows)}</tbody></table></div>
         <p class="note">Benchmark values are copied from each saved run. Rows retain their own split and selection; results are not pooled or presented as matched-sample comparisons. Missing fields are marked “Not recorded.”</p>
       </section>
     """
@@ -596,6 +638,10 @@ def _class_data_attributes(item: Mapping[str, Any]) -> str:
 
 def _valid_measure(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value)
+
+
+def _sort_number(value: Any) -> str:
+    return f"{value:.12g}" if _valid_measure(value) else ""
 
 
 def _measure(value: Any, unit: str, digits: int = 2) -> str:
