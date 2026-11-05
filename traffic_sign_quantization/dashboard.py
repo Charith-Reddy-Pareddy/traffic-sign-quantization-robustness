@@ -176,6 +176,7 @@ def dashboard_html(
       th {{ background: #fafbfd; color: #768293; font-weight: 600; }}
       .sort-button {{ padding: 0; border: 0; background: none; color: inherit; font: inherit; font-weight: inherit; text-align: left; cursor: pointer; }}
       .sort-button:hover, .sort-button:focus {{ color: #244f91; }}
+      .sort-button:focus-visible {{ outline: 3px solid #9cc0f4; outline-offset: 3px; border-radius: 2px; }}
       th[aria-sort="ascending"] .sort-button::after {{ content: " ↑"; }}
       th[aria-sort="descending"] .sort-button::after {{ content: " ↓"; }}
       tbody th {{ color: #202a35; }}
