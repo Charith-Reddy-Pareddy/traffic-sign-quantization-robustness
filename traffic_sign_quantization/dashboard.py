@@ -421,11 +421,24 @@ def _saved_report_section(
         cohort = selection.get("selection") if isinstance(selection, Mapping) else None
         cohort = str(cohort).replace("_", " ").title() if cohort else "Not recorded"
         models = report.get("models", {})
+        config = provenance.get("config", {}) if isinstance(provenance, Mapping) else {}
+        fp32_timing = provenance.get("fp32_timing", {}) if isinstance(provenance, Mapping) else {}
+        ptq_timing = provenance.get("quantized_timing", {}) if isinstance(provenance, Mapping) else {}
+        if not isinstance(config, Mapping):
+            config = {}
+        if not isinstance(fp32_timing, Mapping):
+            fp32_timing = {}
+        if not isinstance(ptq_timing, Mapping):
+            ptq_timing = {}
         scores = []
         for name in ("fp32", "ptq", "qat"):
             metrics = models.get(name, {}) if isinstance(models, Mapping) else {}
             score = metrics.get("accuracy") if isinstance(metrics, Mapping) else None
             scores.append(_percent(score) if score is not None else "Not recorded")
+        size_reduction = config.get("checkpoint_size_reduction")
+        size_reduction = (
+            size_reduction * 100 if _valid_measure(size_reduction) else None
+        )
         rows.append(
             "<tr>"
             f'<th scope="row"><a href="{escape(href, quote=True)}">'
@@ -435,14 +448,18 @@ def _saved_report_section(
             f'<td>{escape(cohort)}</td>'
             f'<td>{report["samples"]:,}</td>'
             + "".join(f"<td>{score}</td>" for score in scores)
+            + f'<td>{_measure(fp32_timing.get("mean_ms"), " ms")}</td>'
+            + f'<td>{_measure(ptq_timing.get("mean_ms"), " ms")}</td>'
+            + f'<td>{_measure(provenance.get("speedup"), "×")}</td>'
+            + f'<td>{_measure(size_reduction, "%", 1)}</td>'
             + "</tr>"
         )
 
     return f"""
       <section class="panel" id="saved-reports" aria-labelledby="saved-reports-title">
         <div class="panel-heading"><div><h2 id="saved-reports-title">Saved report overview</h2><p>Recorded scores and sample counts from each saved evaluation.</p></div></div>
-        <div class="table-wrap"><table><thead><tr><th scope="col">Report</th><th scope="col">Dataset</th><th scope="col">Split</th><th scope="col">Selection</th><th scope="col">Images</th><th scope="col">FP32</th><th scope="col">PTQ</th><th scope="col">QAT</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>
-        <p class="note">Rows retain each report’s own split and selection. Values are not pooled or presented as matched-sample comparisons; missing scores are marked “Not recorded.”</p>
+        <div class="table-wrap"><table><thead><tr><th scope="col">Report</th><th scope="col">Dataset</th><th scope="col">Split</th><th scope="col">Selection</th><th scope="col">Images</th><th scope="col">FP32</th><th scope="col">PTQ</th><th scope="col">QAT</th><th scope="col">FP32 mean</th><th scope="col">PTQ mean</th><th scope="col">PTQ speedup</th><th scope="col">Size reduction</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>
+        <p class="note">Benchmark values are copied from each saved run. Rows retain their own split and selection; results are not pooled or presented as matched-sample comparisons. Missing fields are marked “Not recorded.”</p>
       </section>
     """
 
