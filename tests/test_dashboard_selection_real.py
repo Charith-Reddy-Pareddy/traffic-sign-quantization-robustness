@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from traffic_sign_quantization.dashboard import create_dashboard
+from traffic_sign_quantization.dashboard_data import discover_reports
 
 
 def test_dashboard_selects_a_saved_real_report(tmp_path):
@@ -31,3 +32,19 @@ def test_dashboard_selects_a_saved_real_report(tmp_path):
     assert 'value="qat"' in three_way
     assert 'value="qat"' not in ptq
     assert "training_csv_sha256" in three_way
+
+    reports = discover_reports(report_dir)
+    pages = [
+        output,
+        *(
+            views / f"{path.stem}.html"
+            for path, _ in reports[1:]
+        ),
+    ]
+    for (source, report), path in zip(reports, pages):
+        rendered = path.read_text(encoding="utf-8")
+        assert f"{report['samples']:,} real images" in rendered, source.name
+        for model in report["models"].values():
+            accuracy = model.get("accuracy")
+            if accuracy is not None:
+                assert f"<strong>{accuracy:.1%}</strong>" in rendered, source.name
