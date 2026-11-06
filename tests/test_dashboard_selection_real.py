@@ -48,3 +48,16 @@ def test_dashboard_selects_a_saved_real_report(tmp_path):
             accuracy = model.get("accuracy")
             if accuracy is not None:
                 assert f"<strong>{accuracy:.1%}</strong>" in rendered, source.name
+
+    targets = [f"{path.stem}.html" for path, _ in reports[1:]]
+    assert (views / "../dashboard.html").resolve() == output.resolve()
+    for path in pages[1:]:
+        detail = path.read_text(encoding="utf-8")
+        picker = detail.split('<select id="report-select">', 1)[1].split(
+            "</select>", 1
+        )[0]
+        assert picker.count("<option ") == len(reports)
+        assert 'value="../dashboard.html"' in picker
+        for target in targets:
+            assert f'value="{target}"' in picker
+            assert (views / target).is_file()
