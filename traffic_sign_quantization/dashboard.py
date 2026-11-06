@@ -189,7 +189,7 @@ def dashboard_html(
       pre {{ overflow: auto; padding: 14px; border-radius: 8px; background: #f3f6fa; font-size: 12px; }}
       [hidden] {{ display: none !important; }}
       @media (max-width: 640px) {{ .topbar {{ align-items: flex-start; flex-direction: column; gap: 8px; padding-top: 12px; }} nav {{ min-height: 42px; gap: 20px; }} main {{ width: 92vw; margin-top: 30px; }} .intro {{ align-items: flex-start; flex-direction: column; }} .summary {{ grid-template-columns: 1fr; gap: 10px; }} .summary-card {{ padding: 15px 17px; }} .panel-heading {{ align-items: flex-start; flex-direction: column; }} .results-count {{ width: 100%; margin-left: 0; }} }}
-      @media (max-width: 480px) {{ .class-chart-row {{ grid-template-columns: 1fr; gap: 8px; }} .class-chart-model {{ grid-template-columns: 38px minmax(35px, 1fr) 42px; }} .class-chart-delta {{ grid-column: 2 / -1; }} }}
+      @media (max-width: 480px) {{ .topbar nav {{ flex-wrap: wrap; gap: 10px 16px; }} .class-chart-row {{ grid-template-columns: 1fr; gap: 8px; }} .class-chart-model {{ grid-template-columns: 38px minmax(35px, 1fr) 42px; }} .class-chart-delta {{ grid-column: 2 / -1; }} }}
     </style>
   </head>
   <body>

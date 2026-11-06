@@ -56,6 +56,8 @@ def test_dashboard_shows_saved_real_report():
     assert 'id="evaluations"' in page
     assert "Report provenance" in page
     assert "@media (max-width: 640px)" in page
+    assert "@media (max-width: 480px)" in page
+    assert ".topbar nav { flex-wrap: wrap; gap: 10px 16px; }" in page
     assert "position: sticky" in page
     assert 'search.addEventListener("input", updateClasses)' in page
     assert ".sort-button:focus-visible" in page
