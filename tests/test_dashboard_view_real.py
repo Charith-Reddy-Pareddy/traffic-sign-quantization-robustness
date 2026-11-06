@@ -57,6 +57,10 @@ def test_dashboard_shows_saved_real_report():
     assert "Report provenance" in page
     assert "@media (max-width: 640px)" in page
     assert "position: sticky" in page
+    assert 'search.addEventListener("input", updateClasses)' in page
+    assert ".sort-button:focus-visible" in page
+    assert '.table-wrap[tabindex="0"]:focus-visible' in page
+    assert "overscroll-behavior-x: contain" in page
     assert 'id="class-empty" hidden' in page
     assert 'tbody tr[data-search]' in page
 
