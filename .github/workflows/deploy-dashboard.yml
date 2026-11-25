@@ -1,0 +1,42 @@
+name: Publish dashboard
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "docs/dashboard/**"
+      - "tests/test_dashboard_static_bundle.py"
+      - ".github/workflows/deploy-dashboard.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pytest
+      - run: python -m pytest -q tests/test_dashboard_static_bundle.py
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: docs/dashboard
+      - name: Deploy dashboard
+        id: deployment
+        uses: actions/deploy-pages@v5
